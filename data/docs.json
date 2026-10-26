@@ -1,0 +1,7 @@
+{
+  "DOC-REFUND-POLICY": {
+    "id": "DOC-REFUND-POLICY",
+    "title": "Refund policy",
+    "body": "1. Only the owner of a payment may refund it.\n2. Every refund request must carry an idempotency key. A request with a key that was already used returns the original refund and must not move money twice.\n3. Amounts are integer cents and must be greater than zero.\n4. Partial refunds are allowed. The total refunded for a payment can never exceed the amount originally paid.\n5. Refunding an unknown payment is an error."
+  }
+}

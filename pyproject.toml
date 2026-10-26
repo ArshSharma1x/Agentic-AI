@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentic-squad"
+version = "0.1.0"
+description = "A squad of role-based AI agents that takes a ticket from requirements to verified delivery over MCP."
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=2.3",
+    "mcp>=2.3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=9"]
+
+[project.scripts]
+squad = "squad.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["squad*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
