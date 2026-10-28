@@ -18,6 +18,16 @@ The match runs intel, plan, execute and verify, with retries. A commit happens o
 
 ## Run
 
+## Quick start
+
+```
+.venv/bin/python -m squad start      # opens the app: type a problem, the squad is sized to it
+```
+
+Type a question and one agent answers. Ask for a security audit and AEGIS reviews the code. Ask for a change and the full squad drafts, builds, verifies and asks before committing. Pick agents yourself with the toggles to override triage. Add your own code with `--project /path/to/folder` (it is copied, never edited in place).
+
+## Commands
+
 ```
 python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 .venv/bin/python -m squad run PAY-482 --autonomy full
