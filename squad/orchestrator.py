@@ -14,6 +14,7 @@ from mcp import StdioServerParameters
 
 from .agents import ROSTER
 from .blackboard import Blackboard
+from .config import load_config
 from .draft import Draft, Pick, draft
 from .llm import LLM
 from .mcp_host import MCPHost
@@ -22,16 +23,21 @@ from .paths import RUNS_DIR, SANDBOX_DIR
 from .prompts import build_prompt
 from .runner import AgentError, run_agent
 from .trace import Trace
-from .workspace import Workspace
+from .workspace import Workspace, copy_project
 
 AUTONOMY_LEVELS = ("manual", "semi", "full")
 Approver = Callable[[str], Awaitable[bool]]
 
 
 def server_params(name: str, **env: str) -> StdioServerParameters:
-    return StdioServerParameters(
-        command=sys.executable, args=["-m", f"squad.servers.{name}"], env={**os.environ, **env}
-    )
+    """The built-in stand-in server unless squad.config.json points this name at another MCP server."""
+    custom = load_config().mcp_servers.get(name)
+    if custom:
+        return StdioServerParameters(
+            command=custom["command"], args=list(custom.get("args", [])),
+            env={**os.environ, **custom.get("env", {}), **env},
+        )
+    return StdioServerParameters(command=sys.executable, args=["-m", f"squad.servers.{name}"], env={**os.environ, **env})
 
 
 class Match:
@@ -86,10 +92,7 @@ class Match:
 
         workspace_dir = run_dir / "workspace"
         source = self.project or SANDBOX_DIR / ticket.sandbox
-        shutil.copytree(
-            source, workspace_dir,
-            ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache", ".git", ".venv", "node_modules", "runs"),
-        )
+        copy_project(source, workspace_dir)
         Workspace(workspace_dir).init_repo()
         await host.connect("workspace", server_params("workspace", SQUAD_WORKSPACE=str(workspace_dir)))
 
@@ -119,7 +122,7 @@ class Match:
             success, reason = False, str(err)
 
         stats = self._stats(started, attempts)
-        trace.emit("match_end", success=success, reason=reason, attempts=attempts, commit=commit, answer=self.answer, **stats)
+        trace.emit("match_end", success=success, reason=reason, attempts=attempts, commit=commit, answer=self.answer, workspace=str(workspace_dir), **stats)
         return MatchResult(
             success=success, ticket_id=ticket.id, squad=names, attempts=attempts, commit=commit,
             reason=reason, run_dir=str(run_dir), trace_path=str(trace.path), stats=stats, answer=self.answer,
