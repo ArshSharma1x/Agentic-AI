@@ -22,6 +22,7 @@ The match runs intel, plan, execute and verify, with retries. A commit happens o
 python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 .venv/bin/python -m squad run PAY-482 --autonomy full
 .venv/bin/python -m squad replay <path-to-trace.jsonl>
+.venv/bin/python -m squad eval   # full squad vs a solo FORGE + WARDEN baseline
 .venv/bin/pytest
 ```
 

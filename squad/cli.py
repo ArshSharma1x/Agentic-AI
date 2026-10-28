@@ -4,6 +4,7 @@ import os
 import sys
 from pathlib import Path
 
+from .evals import format_report, run_eval
 from .llm import AnthropicLLM
 from .mcp_host import ToolCallError
 from .orchestrator import AUTONOMY_LEVELS, Match
@@ -32,9 +33,13 @@ def _pick_llm(choice: str):
         if not has_key:
             sys.exit("ANTHROPIC_API_KEY is not set")
         return AnthropicLLM()
-    if choice == "auto":
+    if choice == "auto" and not _pick_llm.warned:
+        _pick_llm.warned = True
         print("No ANTHROPIC_API_KEY found: using the scripted model (real tools, canned decisions).")
     return ScriptedLLM()
+
+
+_pick_llm.warned = False
 
 
 def _run(args) -> int:
@@ -59,6 +64,12 @@ def _replay(args) -> int:
     return 0
 
 
+def _eval(args) -> int:
+    rows = asyncio.run(run_eval(args.tickets, llm_factory=lambda: _pick_llm(args.llm)))
+    print(format_report(rows))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="squad", description="Run a squad of agents on a ticket.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -73,6 +84,11 @@ def main(argv: list[str] | None = None) -> int:
     replay = sub.add_parser("replay", help="replay a saved match trace")
     replay.add_argument("trace", help="path to a trace.jsonl file")
     replay.set_defaults(handler=_replay)
+
+    ev = sub.add_parser("eval", help="compare the full squad with a solo FORGE + WARDEN baseline")
+    ev.add_argument("tickets", nargs="*", default=["PAY-482", "BUG-101"], help="ticket ids (default: all demo tickets)")
+    ev.add_argument("--llm", choices=("auto", "scripted", "anthropic"), default="auto")
+    ev.set_defaults(handler=_eval)
 
     args = parser.parse_args(argv)
     return args.handler(args)
