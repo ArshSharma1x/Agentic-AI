@@ -110,6 +110,14 @@ class ScriptedLLM:
         handler = getattr(self, f"_{agent.name.lower()}")
         return LLMResponse(handler(step, messages, meta))
 
+    def _dispatch(self, step, messages, meta):
+        """Test double for triage: answers with the keyword rules."""
+        from .triage import triage
+
+        request = messages[0]["content"].split("Request:\n", 1)[-1]
+        plan = triage(request, "project")
+        return [_use("submit_triage", kind=plan.kind, agents=[{"name": p.agent, "reason": p.reason} for p in plan.draft.picks])]
+
     def _explore(self, step, messages, meta):
         """RADAR on a free-text request: really lists and reads the project, but cannot reason about it."""
         results = _results(messages)

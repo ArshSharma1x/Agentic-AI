@@ -4,9 +4,9 @@ import re
 import uuid
 from dataclasses import dataclass
 
-from .agents import ROSTER
-from .draft import Draft, Pick, draft
-from .models import Ticket
+from .agents import FAST_MODEL, ROSTER
+from .draft import SENSITIVE_LABELS, Draft, Pick, draft
+from .models import AgentSpec, Role, Ticket
 
 CHANGE_VERBS = {
     "fix", "add", "implement", "build", "create", "refactor", "change", "update", "write", "remove", "rename",
@@ -97,10 +97,61 @@ def triage(text: str, project: str, *, agents: list[str] | None = None, ticket_i
     return Triage(kind, squad, ticket)
 
 
-def offline_blocker(squad_names: list[str], ticket_id: str, *, scripted: bool) -> str | None:
-    """The scripted model can read, test and scan any project, but it can only write code for the two demo tickets."""
-    from .scripted import IMPLEMENTATIONS
+TRIAGE_TOOL = {
+    "name": "submit_triage",
+    "description": "Choose which agents the request needs. Call exactly once.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "kind": {"type": "string", "enum": ["question", "plan", "review", "test", "change"]},
+            "agents": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {"name": {"type": "string", "enum": ORDER}, "reason": {"type": "string"}},
+                    "required": ["name", "reason"],
+                },
+                "description": "The smallest squad that can do the job well.",
+            },
+        },
+        "required": ["kind", "agents"],
+    },
+}
+DISPATCH = AgentSpec(
+    name="DISPATCH", role=Role.CONTROLLER, model=FAST_MODEL, abilities=(), deliverable="submit_triage",
+    system=(
+        "You are DISPATCH. You read a request about a software project and pick the smallest squad that can do it. "
+        "RADAR answers questions and gathers context (read-only). ATLAS writes plans and acceptance criteria. "
+        "FORGE writes and changes code. WARDEN runs the tests and checks the work meets the criteria. AEGIS reviews "
+        "for security problems. A question needs RADAR alone. A security audit needs AEGIS. Only code changes need "
+        "FORGE. Do not add agents the job does not need. Call submit_triage once."
+    ),
+)
 
-    if scripted and "FORGE" in squad_names and ticket_id not in IMPLEMENTATIONS:
-        return "FORGE needs a real model to write code for a custom request. Set ANTHROPIC_API_KEY, or pick a squad without FORGE."
-    return None
+
+async def triage_with_model(text: str, project: str, llm, *, files: list[str] = (), ticket_id: str | None = None) -> Triage:
+    """Let a model choose the squad, then apply the safety rules that must hold whatever it says.
+
+    Falls back to the keyword rules if the model fails or returns nothing usable.
+    """
+    fallback = triage(text, project, ticket_id=ticket_id)
+    prompt = f"Project: {project}\nFiles: {', '.join(list(files)[:60]) or '(unknown)'}\n\nRequest:\n{text}"
+    try:
+        reply = await llm.complete(
+            agent=DISPATCH, messages=[{"role": "user", "content": prompt}], tools=[TRIAGE_TOOL], meta={}
+        )
+        call = next(b for b in reply.content if b.get("type") == "tool_use" and b["name"] == "submit_triage")
+        kind = call["input"]["kind"]
+        chosen = {a["name"]: a["reason"] for a in call["input"]["agents"] if a.get("name") in ROSTER}
+    except Exception:
+        return fallback
+    if not chosen:
+        return fallback
+    ticket = _ticket(text, project, fallback.ticket.id, kind)
+    # Rules that hold whatever the model says: nothing ships without QA, and sensitive code gets a security gate.
+    if "FORGE" in chosen and "WARDEN" not in chosen:
+        chosen["WARDEN"] = "rule: nothing ships without a QA gate"
+    sensitive = SENSITIVE_LABELS & set(ticket.labels)
+    if "FORGE" in chosen and sensitive and "AEGIS" not in chosen:
+        chosen["AEGIS"] = f"rule: the request touches {', '.join(sorted(sensitive))}, so it gets a security gate"
+    return Triage(kind, _picks(*[(a, chosen[a]) for a in ORDER if a in chosen]), ticket)
