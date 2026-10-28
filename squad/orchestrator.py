@@ -39,12 +39,14 @@ class Match:
     def __init__(
         self, ticket_id: str, *, llm: LLM, autonomy: str = "semi", approve: Approver | None = None,
         runs_dir: Path = RUNS_DIR, max_retries: int = 2, listeners=(),
+        squad: list[str] | None = None,
     ) -> None:
         if autonomy not in AUTONOMY_LEVELS:
             raise ValueError(f"autonomy must be one of {AUTONOMY_LEVELS}")
         self.ticket_id, self.llm, self.autonomy = ticket_id, llm, autonomy
         self.approve, self.runs_dir, self.max_retries = approve, runs_dir, max_retries
         self.listeners = list(listeners)
+        self.squad_override = squad  # skips the draft: used for the solo baseline in evals
         self.runs: list[AgentRun] = []
 
     async def run(self) -> MatchResult:
@@ -77,16 +79,20 @@ class Match:
         trace.listeners.extend(self.listeners)
         trace.emit("match_start", ticket=ticket.id, title=ticket.title, autonomy=self.autonomy, llm=type(self.llm).__name__)
         squad = draft(ticket)
-        trace.emit(
-            "draft",
-            picks=[{"agent": p.agent, "reason": p.reason} for p in squad.picks],
-            skipped=[{"agent": p.agent, "reason": p.reason} for p in squad.skipped],
-        )
+        names = self.squad_override or squad.names
+        if self.squad_override:
+            trace.emit("draft", picks=[{"agent": n, "reason": "fixed squad (no draft)"} for n in names], skipped=[])
+        else:
+            trace.emit(
+                "draft",
+                picks=[{"agent": p.agent, "reason": p.reason} for p in squad.picks],
+                skipped=[{"agent": p.agent, "reason": p.reason} for p in squad.skipped],
+            )
 
         board = Blackboard(trace)
         attempts, commit, success, reason = 0, None, False, ""
         try:
-            attempts, success, reason = await self._play(ticket, squad.names, host, board, trace)
+            attempts, success, reason = await self._play(ticket, names, host, board, trace)
             if success:
                 if await self._gate(trace, f"Commit the changes for {ticket.id}?", commit=True):
                     commit = await host.call("workspace__git_commit", {"message": f"{ticket.id}: {ticket.title}"})
@@ -100,15 +106,16 @@ class Match:
         stats = self._stats(started, attempts)
         trace.emit("match_end", success=success, reason=reason, attempts=attempts, commit=commit, **stats)
         return MatchResult(
-            success=success, ticket_id=ticket.id, squad=squad.names, attempts=attempts, commit=commit,
+            success=success, ticket_id=ticket.id, squad=names, attempts=attempts, commit=commit,
             reason=reason, run_dir=str(run_dir), trace_path=str(trace.path), stats=stats,
         )
 
     async def _play(self, ticket, squad, host, board, trace) -> tuple[int, bool, str]:
         if not await self._gate(trace, "Start the intel phase?", phase=True):
             return 0, False, "stopped before intel"
-        trace.emit("phase", name="intel")
-        board.write("intel", (await self._agent("RADAR", ticket, board, host, trace, "intel", 1, [])).deliverable, "RADAR")
+        if "RADAR" in squad:
+            trace.emit("phase", name="intel")
+            board.write("intel", (await self._agent("RADAR", ticket, board, host, trace, "intel", 1, [])).deliverable, "RADAR")
 
         if "ATLAS" in squad:
             if not await self._gate(trace, "Start the plan phase?", phase=True):
