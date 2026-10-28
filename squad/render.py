@@ -51,8 +51,9 @@ def render(event: dict) -> str | None:
     if kind == "match_end":
         verdict = f"{GREEN}VICTORY{RESET}" if event["success"] else f"{RED}DEFEAT{RESET}"
         tokens = event["input_tokens"] + event["output_tokens"]
+        answer = f"\n\n{event['answer']}" if event.get("answer") else ""
         return (
-            f"\n{BOLD}{verdict}{RESET} {event['reason']}\n"
+            f"\n{BOLD}{verdict}{RESET} {event['reason']}{answer}\n"
             f"{DIM}attempts={event['attempts']} model_calls={event['model_calls']} tool_calls={event['tool_calls']} "
             f"tokens={tokens} time={event['seconds']}s{RESET}"
         )

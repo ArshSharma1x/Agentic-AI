@@ -75,3 +75,4 @@ class MatchResult:
     run_dir: str
     trace_path: str
     stats: dict = field(default_factory=dict)
+    answer: str = ""

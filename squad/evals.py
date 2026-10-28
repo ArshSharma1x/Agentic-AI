@@ -5,11 +5,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from .draft import Draft, Pick
 from .llm import LLM
 from .orchestrator import Match
 from .workspace import Workspace
 
-SOLO = ["FORGE", "WARDEN"]
+SOLO = Draft(tuple(Pick(n, "fixed squad (no draft)") for n in ("FORGE", "WARDEN")), ())
 
 
 @dataclass
@@ -29,7 +30,7 @@ async def run_eval(tickets: list[str], *, llm_factory: Callable[[], LLM]) -> lis
         for ticket in tickets:
             for mode, squad in (("squad", None), ("solo", SOLO)):
                 runs_dir = Path(tmp) / mode
-                result = await Match(ticket, llm=llm_factory(), autonomy="full", runs_dir=runs_dir, squad=squad).run()
+                result = await Match(ticket, llm=llm_factory(), autonomy="full", runs_dir=runs_dir, squad_draft=squad).run()
                 scan = Workspace(Path(result.run_dir) / "workspace").security_scan()
                 findings = [f"{f['rule']} in {f['file']}" for f in scan["findings"]]
                 s = result.stats
