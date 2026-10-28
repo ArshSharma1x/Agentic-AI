@@ -1,0 +1,10 @@
+{
+  "anthropic": {
+    "api_key": "sk-ant-REPLACE_ME"
+  },
+  "mcpServers": {
+    "jira": { "command": ".venv/bin/python", "args": ["-m", "squad.servers.jira"] },
+    "confluence": { "command": ".venv/bin/python", "args": ["-m", "squad.servers.confluence"] },
+    "workspace": { "command": ".venv/bin/python", "args": ["-m", "squad.servers.workspace"] }
+  }
+}

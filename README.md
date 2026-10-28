@@ -21,21 +21,27 @@ The match runs intel, plan, execute and verify, with retries. A commit happens o
 ## Quick start
 
 ```
-.venv/bin/python -m squad start      # opens the app: type a problem, the squad is sized to it
+cp squad.config.example.json squad.config.json    # then put your Anthropic key in it (the file is gitignored)
+cd /path/to/your/project
+/path/to/Agentic-AI/.venv/bin/python -m squad start
 ```
 
-Type a question and one agent answers. Ask for a security audit and AEGIS reviews the code. Ask for a change and the full squad drafts, builds, verifies and asks before committing. Pick agents yourself with the toggles to override triage. Add your own code with `--project /path/to/folder` (it is copied, never edited in place).
+Type any problem. A dispatcher reads it and sends in only the agents the job needs: a question gets one agent, a security audit gets AEGIS, a code change gets the full squad with a QA gate (and a security gate for payments, auth or PII). The squad works on a copy of the folder you started in, so your files are never edited in place. A key is required because every agent is a model call; the app tells you where to put it, and picks it up without a restart. The `ANTHROPIC_API_KEY` environment variable also works and takes priority.
 
-## Commands
+`squad.config.json` also lists the MCP servers (`mcpServers`, same shape as `.mcp.json`). They default to the bundled Jira, Confluence and workspace stand-ins; point a name at a real MCP server command to swap it.
+
+## Other commands
+
+`run` and `eval` are dev tools that use a scripted model and the bundled demo tickets, so they work with no key.
 
 ```
 python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 .venv/bin/python -m squad run PAY-482 --autonomy full
-.venv/bin/python -m squad ask "What does the refund function do?"   # a plain-words problem; triage sizes the squad
+.venv/bin/python -m squad ask "What does this project do?"   # terminal version of the app (needs a key)
 .venv/bin/python -m squad replay <path-to-trace.jsonl>
 .venv/bin/python -m squad eval   # full squad vs a solo FORGE + WARDEN baseline
 .venv/bin/python -m squad ui <path-to-trace.jsonl> --open   # game-style HTML replay
 .venv/bin/pytest
 ```
 
-`--llm auto` uses Claude when `ANTHROPIC_API_KEY` is set and a scripted model otherwise. The scripted model uses real MCP tools with canned decisions, so it proves the machinery and not model quality. Use `--autonomy manual|semi|full` to control approval gates.
+The scripted model uses real MCP tools with canned decisions, so it proves the machinery and not model quality. Use `--autonomy manual|semi|full` to control approval gates.

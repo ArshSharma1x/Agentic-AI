@@ -25,12 +25,12 @@ class LLM(Protocol):
 
 
 class AnthropicLLM:
-    """Calls the Claude Messages API with tool use. Needs ANTHROPIC_API_KEY."""
+    """Calls the Claude Messages API with tool use."""
 
-    def __init__(self, client=None) -> None:
+    def __init__(self, client=None, api_key: str | None = None) -> None:
         from anthropic import AsyncAnthropic
 
-        self._client = client or AsyncAnthropic()
+        self._client = client or AsyncAnthropic(api_key=api_key)
 
     async def complete(self, *, agent, messages, tools, meta) -> LLMResponse:
         response = await self._client.messages.create(
@@ -47,3 +47,11 @@ class AnthropicLLM:
             elif block.type == "tool_use":
                 blocks.append({"type": "tool_use", "id": block.id, "name": block.name, "input": block.input})
         return LLMResponse(blocks, response.usage.input_tokens, response.usage.output_tokens)
+
+
+def llm_from_config() -> AnthropicLLM | None:
+    """A model client if a key is configured (squad.config.json or the environment), else None."""
+    from .config import load_config
+
+    key = load_config().api_key
+    return AnthropicLLM(api_key=key) if key else None

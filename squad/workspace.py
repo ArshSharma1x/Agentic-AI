@@ -1,6 +1,8 @@
 """The sandboxed working copy that agents read and edit through the workspace MCP server."""
 
 import ast
+import os
+import shutil
 import re
 import subprocess
 import sys
@@ -122,3 +124,19 @@ class Workspace:
                         "detail": f"{node.name}() moves money but never checks who is calling it",
                     })
         return findings
+
+
+COPY_SKIP_DIRS = {"__pycache__", ".pytest_cache", ".mypy_cache", ".git", ".venv", "venv", "node_modules", "runs", "dist", "build", ".next"}
+SKIP_FILES = (".env", ".env.*", "squad.config.json", "*.pem", "id_rsa*", "*.key")
+MAX_COPY_MB = 300
+
+
+def copy_project(source: Path, dest: Path) -> None:
+    """Copy a project into a match workspace. Agents never see secrets files, and huge folders are refused."""
+    total = 0
+    for root, dirs, files in os.walk(source):
+        dirs[:] = [d for d in dirs if d not in COPY_SKIP_DIRS]
+        total += sum((Path(root) / f).stat().st_size for f in files if not (Path(root) / f).is_symlink())
+        if total > MAX_COPY_MB * 1024 * 1024:
+            raise WorkspaceError(f"{source} is over {MAX_COPY_MB} MB: start the squad from a smaller project folder")
+    shutil.copytree(source, dest, ignore=shutil.ignore_patterns(*COPY_SKIP_DIRS, *SKIP_FILES), symlinks=True)
