@@ -7,7 +7,7 @@ SMART_MODEL = os.environ.get("SQUAD_MODEL_SMART", "claude-sonnet-5-5")
 
 
 def _abilities(*tools: tuple[str, str]) -> tuple[Ability, ...]:
-    return tuple(Ability(key, label, tool) for key, (label, tool) in zip("QECX", tools, strict=False))
+    return tuple(Ability(key, label, tool) for key, (label, tool) in zip("QECXZ", tools, strict=False))
 
 
 RADAR = AgentSpec(
@@ -15,6 +15,7 @@ RADAR = AgentSpec(
     abilities=_abilities(
         ("Pull Ticket", "jira__get_ticket"), ("Read Doc", "confluence__get_doc"),
         ("Search Docs", "confluence__search_docs"), ("Scout Code", "workspace__list_files"),
+        ("Read File", "workspace__read_file"),
     ),
     system=(
         "You are RADAR, the Initiator. You gather context before anyone else acts. "

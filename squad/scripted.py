@@ -110,7 +110,31 @@ class ScriptedLLM:
         handler = getattr(self, f"_{agent.name.lower()}")
         return LLMResponse(handler(step, messages, meta))
 
+    def _explore(self, step, messages, meta):
+        """RADAR on a free-text request: really lists and reads the project, but cannot reason about it."""
+        results = _results(messages)
+        if step == 0:
+            return [_use("jira__get_ticket", ticket_id=meta["ticket"])]
+        if step == 1:
+            return [_use("workspace__list_files")]
+        listing = next((r for r in results if isinstance(r, str) and ".py" in r), "")
+        files = listing.split()
+        sources = [f for f in files if f.endswith(".py") and not f.startswith("tests/") and not f.endswith("__init__.py")][:4]
+        if step == 2:
+            return [_use("workspace__read_file", path=f) for f in sources]
+        facts = [f"{f}: {len(files)} file(s) in the project" if i == 0 else f for i, f in enumerate(files[:12])]
+        for text in (r for r in results if isinstance(r, str) and not r.startswith("{")):
+            facts += [l.strip() for l in text.splitlines() if l.strip().startswith(("def ", "class ", '"""'))][:6]
+        ticket = _find(results, "description") or {"description": meta["ticket"]}
+        summary = (
+            "Offline mode: I can list and read this project but cannot reason about it, so this is a map, not an answer to "
+            f"\"{ticket['description'][:120]}\". Set ANTHROPIC_API_KEY for a real answer."
+        )
+        return [_use("submit_intel", summary=summary, key_facts=facts)]
+
     def _radar(self, step, messages, meta):
+        if meta["ticket"] not in IMPLEMENTATIONS:
+            return self._explore(step, messages, meta)
         results = _results(messages)
         ticket = _find(results, "linked_docs")
         if step == 0:
