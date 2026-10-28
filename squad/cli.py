@@ -89,6 +89,24 @@ def _ask_cmd(args) -> int:
     return 0 if result.success else 1
 
 
+def _start(args) -> int:
+    import threading
+    import webbrowser
+
+    import uvicorn
+
+    from .server import create_app
+
+    projects = discover([Path(p) for p in args.project])
+    llm = _pick_llm(args.llm)
+    url = f"http://127.0.0.1:{args.port}"
+    print(f"Squad is live at {url}  (Ctrl+C to stop). Projects: {', '.join(projects)}")
+    if not args.no_open:
+        threading.Timer(1.0, webbrowser.open, [url]).start()
+    uvicorn.run(create_app(projects, llm), host="127.0.0.1", port=args.port, log_level="warning")
+    return 0
+
+
 def _ui(args) -> int:
     path = Path(args.trace)
     if not path.is_file():
@@ -121,6 +139,13 @@ def main(argv: list[str] | None = None) -> int:
     replay = sub.add_parser("replay", help="replay a saved match trace")
     replay.add_argument("trace", help="path to a trace.jsonl file")
     replay.set_defaults(handler=_replay)
+
+    start = sub.add_parser("start", help="open the squad app in your browser: type a problem, watch the squad work")
+    start.add_argument("--port", type=int, default=8765)
+    start.add_argument("--project", action="append", default=[], help="add your own project folder (copied, never edited in place)")
+    start.add_argument("--llm", choices=("auto", "scripted", "anthropic"), default="auto")
+    start.add_argument("--no-open", action="store_true", help="do not open the browser")
+    start.set_defaults(handler=_start)
 
     ask = sub.add_parser("ask", help="give the squad a problem in plain words; it sizes the squad itself")
     ask.add_argument("prompt")
