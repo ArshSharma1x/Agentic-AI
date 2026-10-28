@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Squad Match Replay</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;800&family=Chakra+Petch:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0b0e14;--panel:#131822;--line:#252d3d;--text:#e8ecf4;--dim:#7d889c;--red:#ff4655;--cyan:#3ee0ff;--gold:#ffc94d;--green:#4be38a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.4 "Chakra Petch",system-ui,sans-serif}
+h1,.big{font-family:"Barlow Condensed",Impact,sans-serif;text-transform:uppercase;letter-spacing:.04em}
+main{max-width:1100px;margin:0 auto;padding:16px}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:baseline;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:12px}
+h1{margin:0;font-size:30px;font-weight:800}h1 span{color:var(--red)}
+#title{color:var(--dim)}
+#phases{display:flex;gap:6px;margin:14px 0;flex-wrap:wrap}
+.chip{padding:5px 14px;border:1px solid var(--line);color:var(--dim);font-family:"Barlow Condensed",sans-serif;font-size:16px;letter-spacing:.08em;clip-path:polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%)}
+.chip.on{background:var(--red);color:#fff;border-color:var(--red)}.chip.done{color:var(--text);border-color:var(--dim)}
+#agents{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+.card{background:var(--panel);border:1px solid var(--line);border-top:3px solid var(--c);padding:10px 12px;transition:.2s;opacity:.55}
+.card.active{opacity:1;box-shadow:0 0 18px -4px var(--c);transform:translateY(-3px)}
+.card.benched{opacity:.25}
+.card .name{font:800 26px "Barlow Condensed";color:var(--c)}.card .role{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:.1em}
+.card .why{font-size:11px;color:var(--dim);margin-top:6px;min-height:30px}
+.tag{display:inline-block;margin-top:6px;padding:1px 8px;font-size:12px;font-weight:600}
+.tag.pass{background:var(--green);color:#04210f}.tag.fail{background:var(--red);color:#fff}
+.row{display:grid;grid-template-columns:1fr 220px;gap:12px;margin-top:14px}
+@media(max-width:760px){.row{grid-template-columns:1fr}}
+#feed{background:var(--panel);border:1px solid var(--line);height:360px;overflow:auto;padding:8px 12px;font-size:13px}
+.ev{padding:2px 0;color:var(--dim)}.ev b{color:var(--c,var(--text));display:inline-block;min-width:64px}
+.ev.bad{color:var(--red)}.ev.good{color:var(--green)}.ev.sys{color:var(--gold)}
+#stats{display:grid;gap:10px;align-content:start}
+.stat{background:var(--panel);border:1px solid var(--line);padding:10px 12px}
+.stat .v{font:800 34px "Barlow Condensed";line-height:1}.stat .k{color:var(--dim);font-size:11px;letter-spacing:.12em;text-transform:uppercase}
+#banner{display:none;margin-top:14px;text-align:center;padding:18px;border:2px solid var(--c);color:var(--c);background:var(--panel)}
+#banner .big{font-size:64px;font-weight:800;line-height:1}
+#ctl{display:flex;gap:10px;align-items:center;margin-top:14px}
+button,select{background:var(--panel);color:var(--text);border:1px solid var(--line);padding:6px 14px;font:inherit;cursor:pointer}
+button:hover{border-color:var(--red)}input[type=range]{flex:1;accent-color:var(--red)}
+</style></head><body><main>
+<header><h1>Squad <span>Match</span> Replay</h1><div id="title"></div></header>
+<div id="phases"></div>
+<div id="agents"></div>
+<div class="row"><div id="feed" aria-live="polite"></div>
+<div id="stats"><div class="stat"><div class="v" id="s-tok">0</div><div class="k">tokens</div></div>
+<div class="stat"><div class="v" id="s-calls">0</div><div class="k">tool calls</div></div>
+<div class="stat"><div class="v" id="s-att">0</div><div class="k">attempt</div></div></div></div>
+<div id="banner"><div class="big" id="b-h"></div><div id="b-t"></div></div>
+<div id="ctl"><button id="play">Pause</button><input id="seek" type="range" min="0" value="0"><select id="speed"><option value="900">0.5x</option><option value="450" selected>1x</option><option value="150">3x</option></select></div>
+</main>
+<script>
+const EVENTS = /*EVENTS*/[]/*END*/;
+const ROLE = {RADAR:"Initiator",ATLAS:"Controller",FORGE:"Duelist",WARDEN:"Sentinel",AEGIS:"Sentinel"};
+const COLOR = {Duelist:"#ff4655",Initiator:"#3ee0ff",Controller:"#ffc94d",Sentinel:"#4be38a"};
+const PHASES = ["intel","plan","execute","verify","commit"];
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const short = (v,n=90) => { const t = (typeof v==="string"?v:JSON.stringify(v)).replace(/\s+/g," "); return t.length>n?t.slice(0,n-3)+"...":t; };
+const col = a => COLOR[ROLE[a]] || "#e8ecf4";
+
+function frame(upto) {
+  const st = {picks:[],skipped:[],phase:null,done:new Set(),active:null,verdicts:{},tokens:0,calls:0,attempt:0,end:null,lines:[]};
+  for (let i = 0; i <= upto; i++) {
+    const e = EVENTS[i], line = (cls, who, text) => st.lines.push(`<div class="ev ${cls}"><b ${who?`style="--c:${col(who)}"`:""}>${who||""}</b> ${esc(text)}</div>`);
+    switch (e.type) {
+      case "match_start": st.title = `${e.ticket}: ${e.title}`; line("sys","", `MATCH ${e.ticket} (autonomy ${e.autonomy}, ${e.llm})`); break;
+      case "draft": st.picks = e.picks; st.skipped = e.skipped; line("sys","", "AGENT SELECT: "+e.picks.map(p=>p.agent).join(", ")); break;
+      case "phase": if (st.phase && st.phase!==e.name) st.done.add(st.phase); st.phase = e.name; if (e.attempt) st.attempt = e.attempt; line("sys","", "== "+e.name.toUpperCase()+(e.attempt?` (attempt ${e.attempt})`:"")+" =="); break;
+      case "agent_start": st.active = e.agent; break;
+      case "tool_call": st.calls++; line("", e.agent, `${e.tool} ${short(e.args)}`); break;
+      case "tool_result": line(e.ok?"":"bad","", (e.ok?"-> ":"!! ")+short(e.preview)); break;
+      case "agent_done": st.tokens += e.input_tokens + e.output_tokens; if (st.active===e.agent) st.active = null; break;
+      case "verdict": st.verdicts[e.agent] = e.passed; line(e.passed?"good":"bad", e.agent, "verdict "+(e.passed?"PASS":"FAIL")); e.issues.forEach(x => line("bad","", "- "+short(x,140))); break;
+      case "retry": st.verdicts = {}; line("sys","", `RETRY: attempt ${e.attempt} rejected, ${e.issues.length} issue(s) sent back to FORGE`); break;
+      case "approval": line("sys","", `APPROVAL ${e.question} -> ${e.approved?"yes":"no"}`); break;
+      case "commit": st.phase = "commit"; st.done.add("verify"); line("good","", "COMMIT "+e.sha); break;
+      case "match_end": st.end = e; st.done = new Set(PHASES); st.phase = null; break;
+    }
+  }
+  return st;
+}
+
+function draw(i) {
+  const s = frame(i);
+  $("title").textContent = s.title || "";
+  $("phases").innerHTML = PHASES.map(p => `<div class="chip ${s.phase===p?"on":s.done.has(p)?"done":""}">${p}</div>`).join("");
+  const all = [...s.picks.map(p=>({...p,on:true})), ...s.skipped.map(p=>({...p,on:false}))];
+  $("agents").innerHTML = all.map(p => {
+    const v = s.verdicts[p.agent], tag = v===undefined ? "" : `<span class="tag ${v?"pass":"fail"}">${v?"PASS":"FAIL"}</span>`;
+    return `<div class="card ${p.on?(s.active===p.agent?"active":""):"benched"}" style="--c:${col(p.agent)}"><div class="name">${p.agent}</div><div class="role">${ROLE[p.agent]||""}${p.on?"":" (benched)"}</div><div class="why">${esc(p.reason)}</div>${tag}</div>`;
+  }).join("");
+  const feed = $("feed"), stick = feed.scrollTop + feed.clientHeight >= feed.scrollHeight - 30;
+  feed.innerHTML = s.lines.join(""); if (stick) feed.scrollTop = feed.scrollHeight;
+  const end = s.end, tok = end ? end.input_tokens + end.output_tokens : s.tokens;
+  $("s-tok").textContent = tok.toLocaleString(); $("s-calls").textContent = end ? end.tool_calls : s.calls; $("s-att").textContent = end ? end.attempts : s.attempt;
+  const b = $("banner"); b.style.display = end ? "block" : "none";
+  if (end) { b.style.setProperty("--c", end.success ? "var(--green)" : "var(--red)"); $("b-h").textContent = end.success ? "Victory" : "Defeat"; $("b-t").textContent = end.reason; }
+}
+
+let i = 0, playing = true, timer = null;
+const seek = $("seek"); seek.max = Math.max(EVENTS.length - 1, 0);
+function go(n) { i = Math.min(Math.max(n, 0), EVENTS.length - 1); seek.value = i; draw(i); }
+function tick() { clearTimeout(timer); if (!playing) return; if (i >= EVENTS.length - 1) { playing = false; $("play").textContent = "Replay"; return; } go(i + 1); timer = setTimeout(tick, +$("speed").value); }
+$("play").onclick = () => { if (i >= EVENTS.length - 1) go(0); playing = !playing; $("play").textContent = playing ? "Pause" : "Play"; tick(); };
+seek.oninput = () => { playing = false; $("play").textContent = "Play"; go(+seek.value); };
+$("speed").onchange = tick;
+const start = location.hash.slice(1); // #end or #<frame> opens paused on that frame
+if (EVENTS.length && start) { playing = false; $("play").textContent = "Replay"; go(start === "end" ? EVENTS.length - 1 : +start || 0); }
+else if (EVENTS.length) { go(0); tick(); } else $("title").textContent = "empty trace";
+</script></body></html>
