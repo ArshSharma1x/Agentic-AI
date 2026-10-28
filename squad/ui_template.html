@@ -17,11 +17,9 @@ textarea{width:100%;margin-top:6px;background:var(--bg);color:var(--text);border
 textarea:focus,select:focus{outline:1px solid var(--red)}
 .crow{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:10px}
 #pick{display:flex;gap:6px;flex-wrap:wrap}
-.pk{padding:3px 10px;border:1px solid var(--line);color:var(--dim);cursor:pointer;font-weight:600;font-size:12px;user-select:none}
-.pk.on{border-color:var(--c);color:var(--c);background:color-mix(in srgb,var(--c) 14%,transparent)}
 #deploy{background:var(--red);border-color:var(--red);color:#fff;font:800 18px "Barlow Condensed";letter-spacing:.1em;padding:6px 22px;margin-left:auto}
 #deploy:disabled{opacity:.35;cursor:not-allowed}
-#preview{margin-top:8px;font-size:13px;color:var(--dim);min-height:20px}#preview b{color:var(--text)}#preview .warn{color:var(--red)}
+#setup{margin-top:8px;font-size:13px;color:var(--dim)}#setup:not(:empty){border-left:3px solid var(--gold);padding:6px 10px;color:var(--text)}#setup .warn{color:var(--red)}#setup code{color:var(--gold)}
 #approval{display:none;margin-top:14px;border:2px solid var(--gold);background:var(--panel);padding:12px 14px;align-items:center;gap:12px}
 #approval span{flex:1;color:var(--gold);font-weight:600}
 #phases{display:flex;gap:6px;margin:14px 0;flex-wrap:wrap}
@@ -54,10 +52,10 @@ button:hover:not(:disabled){border-color:var(--red)}input[type=range]{flex:1;acc
 <header><h1>Squad <span id="mode">Match</span></h1><div id="title"></div></header>
 <section id="console" hidden>
   <div class="k">What's the problem?</div>
-  <textarea id="prompt" rows="3" maxlength="4000" placeholder="Ask a question, request a review, or describe a change. The squad is sized to the problem. Try: What does refund() do?"></textarea>
+  <textarea id="prompt" rows="3" maxlength="4000" placeholder="Ask a question, request a review, or describe a change. The right agents are sent in for the job."></textarea>
   <div class="crow"><select id="project" aria-label="project"></select><select id="autonomy" aria-label="autonomy"></select>
-    <div id="pick" title="Leave all off to let triage choose"></div><button id="deploy" disabled>Deploy squad</button></div>
-  <div id="preview"></div>
+    <button id="deploy" disabled>Deploy squad</button></div>
+  <div id="setup"></div>
 </section>
 <div id="approval"><span id="aq"></span><button id="yes">Approve</button><button id="no">Deny</button></div>
 <div id="phases"></div>
@@ -80,7 +78,6 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 const short = (v,n=90) => { const t = (typeof v==="string"?v:JSON.stringify(v)).replace(/\s+/g," "); return t.length>n?t.slice(0,n-3)+"...":t; };
 const col = a => COLOR[ROLE[a]] || "#e8ecf4";
-let PREVIEW = null;
 
 function frame(upto) {
   const st = {picks:[],skipped:[],phase:null,done:new Set(),active:null,verdicts:{},tokens:0,calls:0,attempt:0,end:null,pending:null,lines:[]};
@@ -90,6 +87,8 @@ function frame(upto) {
       case "match_start": st.title = `${e.ticket}: ${e.title}`; line("sys","", `MATCH ${e.ticket} (autonomy ${e.autonomy}, ${e.llm})`); break;
       case "draft": st.picks = e.picks; st.skipped = e.skipped; line("sys","", "AGENT SELECT: "+e.picks.map(p=>p.agent).join(", ")); break;
       case "phase": if (st.phase && st.phase!==e.name) st.done.add(st.phase); st.phase = e.name; if (e.attempt) st.attempt = e.attempt; line("sys","", "== "+e.name.toUpperCase()+(e.attempt?` (attempt ${e.attempt})`:"")+" =="); break;
+      case "triaging": line("sys","", "DISPATCH is reading your request..."); break;
+      case "triage": line("sys","", `DISPATCH: ${e.kind} -> ${e.agents.join(" + ")}`); break;
       case "agent_start": st.active = e.agent; break;
       case "tool_call": st.calls++; line("", e.agent, `${e.tool} ${short(e.args)}`); break;
       case "tool_result": line(e.ok?"":"bad","", (e.ok?"-> ":"!! ")+short(e.preview)); break;
@@ -108,8 +107,10 @@ function frame(upto) {
 
 function draw(i) {
   const s = frame(i);
-  if (LIVE && !EVENTS.length && PREVIEW) { s.picks = PREVIEW.picks; s.skipped = PREVIEW.skipped; }
-  if (LIVE && !EVENTS.length) s.lines.push(`<div class="ev sys"><b></b> Describe a problem above and deploy the squad.</div>`);
+  if (LIVE && !EVENTS.length) {
+    s.picks = Object.keys(ROSTER).map(agent => ({agent, reason: "standing by"}));
+    s.lines.push(`<div class="ev sys"><b></b> Describe a problem above. DISPATCH sends in only the agents the job needs.</div>`);
+  }
   $("title").textContent = s.title || "";
   $("phases").innerHTML = PHASES.map(p => `<div class="chip ${s.phase===p?"on":s.done.has(p)?"done":""}">${p}</div>`).join("");
   const all = [...s.picks.map(p=>({...p,on:true})), ...s.skipped.map(p=>({...p,on:false}))];
@@ -123,7 +124,7 @@ function draw(i) {
   const end = s.end, tok = end ? end.input_tokens + end.output_tokens : s.tokens;
   $("s-tok").textContent = tok.toLocaleString(); $("s-calls").textContent = end ? end.tool_calls : s.calls; $("s-att").textContent = end ? end.attempts : s.attempt;
   const b = $("banner"); b.style.display = end ? "block" : "none";
-  if (end) { b.style.setProperty("--c", end.success ? "var(--green)" : "var(--red)"); $("b-h").textContent = end.success ? "Victory" : "Defeat"; $("b-t").textContent = end.reason; $("b-a").textContent = end.answer || ""; }
+  if (end) { b.style.setProperty("--c", end.success ? "var(--green)" : "var(--red)"); $("b-h").textContent = end.success ? "Victory" : "Defeat"; $("b-t").textContent = end.reason; $("b-a").textContent = (end.answer || "") + (end.workspace ? `\n\nWorking copy: ${end.workspace}` : ""); }
   $("approval").style.display = s.pending ? "flex" : "none"; $("aq").textContent = s.pending || "";
   return s;
 }
@@ -131,35 +132,30 @@ function draw(i) {
 if (LIVE) {
   $("mode").textContent = "Live"; $("console").hidden = false; $("ctl").style.display = "none";
   const api = (path, body) => fetch(path, {method:"POST", headers:{"Content-Type":"application/json","X-Squad":"1"}, body:JSON.stringify(body)}).then(async r => ({ok:r.ok, data:await r.json()}));
-  let source = null, runId = null, running = false, timer = null;
-  const picked = () => [...document.querySelectorAll(".pk.on")].map(x => x.dataset.a);
-  const request = () => ({prompt:$("prompt").value, project:$("project").value, autonomy:$("autonomy").value, agents:picked()});
-  const busy = v => { running = v; $("deploy").disabled = v || !$("prompt").value.trim(); $("deploy").textContent = v ? "In match..." : "Deploy squad"; };
-  async function refresh() {
-    if (running || !$("prompt").value.trim()) { if (!running) $("preview").textContent = ""; return busy(running); }
-    const {ok, data} = await api("/api/triage", request());
-    if (!ok) { $("preview").innerHTML = `<span class="warn">${esc(data.error)}</span>`; $("deploy").disabled = true; return; }
-    PREVIEW = data; if (!EVENTS.length) draw(-1);
-    const names = data.picks.map(p => p.agent).join(" + ");
-    $("preview").innerHTML = `Triage: <b>${data.kind}</b> &rarr; <b>${names}</b> (${data.picks.length} of ${data.picks.length + data.skipped.length} agents)` + (data.blocker ? ` <span class="warn">${esc(data.blocker)}</span>` : "");
-    $("deploy").disabled = !!data.blocker;
-  }
-  const later = () => { clearTimeout(timer); timer = setTimeout(refresh, 300); };
-  fetch("/api/config").then(r => r.json()).then(c => {
-    $("project").innerHTML = c.projects.map(p => `<option>${p}</option>`).join("");
-    $("autonomy").innerHTML = c.autonomy.map(a => `<option ${a==="semi"?"selected":""}>${a}</option>`).join("");
-    $("pick").innerHTML = c.agents.map(a => `<span class="pk" data-a="${a}" style="--c:${col(a)}">${a}</span>`).join("");
-    $("pick").onclick = e => { if (e.target.dataset.a) { e.target.classList.toggle("on"); later(); } };
-    $("title").textContent = c.llm === "scripted" ? "offline model: can explore, test and scan; code changes need ANTHROPIC_API_KEY" : "live model";
+  let source = null, runId = null, running = false, hasKey = false;
+  const sync = () => { $("deploy").disabled = running || !hasKey || !$("prompt").value.trim(); $("deploy").textContent = running ? "In match..." : "Deploy squad"; };
+  const loadConfig = () => fetch("/api/config").then(r => r.json()).then(c => {
+    hasKey = c.hasKey;
+    if (!$("project").options.length) {
+      $("project").innerHTML = c.projects.map(p => `<option>${esc(p)}</option>`).join("");
+      $("autonomy").innerHTML = c.autonomy.map(a => `<option ${a==="semi"?"selected":""}>${a}</option>`).join("");
+    }
+    $("setup").innerHTML = c.configError ? `<span class="warn">${esc(c.configError)}</span>`
+      : hasKey ? "" : `<b>No API key yet.</b> Copy <code>squad.config.example.json</code> to <code>${esc(c.configPath)}</code> and put your Anthropic key in it. Then press Deploy: no restart needed.`;
+    $("title").textContent = hasKey ? "model connected" : "";
+    sync();
   });
-  ["prompt","project"].forEach(id => $(id).addEventListener("input", later));
+  loadConfig();
+  $("prompt").addEventListener("input", sync);
+  $("prompt").addEventListener("keydown", e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !$("deploy").disabled) $("deploy").click(); });
   $("deploy").onclick = async () => {
-    const {ok, data} = await api("/api/runs", request());
-    if (!ok) { $("preview").innerHTML = `<span class="warn">${esc(data.error)}</span>`; return; }
-    runId = data.id; EVENTS.length = 0; busy(true); draw(-1);
+    const {ok, data} = await api("/api/runs", {prompt:$("prompt").value, project:$("project").value, autonomy:$("autonomy").value});
+    if (!ok) { $("setup").innerHTML = `<span class="warn">${esc(data.error)}</span>`; loadConfig(); return; }
+    $("setup").innerHTML = ""; runId = data.id; EVENTS.length = 0; running = true; sync(); draw(-1);
     source = new EventSource(`/api/runs/${data.id}/events`);
-    source.onmessage = m => { EVENTS.push(JSON.parse(m.data)); const last = EVENTS[EVENTS.length-1].type; draw(EVENTS.length-1); if (last === "match_end" || last === "error") { source.close(); busy(false); } };
-    source.onerror = () => { source.close(); busy(false); };
+    const done = () => { source.close(); running = false; sync(); };
+    source.onmessage = m => { EVENTS.push(JSON.parse(m.data)); const last = EVENTS[EVENTS.length-1].type; draw(EVENTS.length-1); if (last === "match_end" || last === "error") done(); };
+    source.onerror = done;
   };
   $("yes").onclick = () => decide(true); $("no").onclick = () => decide(false);
   function decide(approved) { api(`/api/runs/${runId}/approve`, {approved}); }

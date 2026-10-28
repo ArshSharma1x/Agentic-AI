@@ -3,6 +3,7 @@
 import asyncio
 import json
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 
 from starlette.applications import Starlette
@@ -10,12 +11,12 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, StreamingResponse
 from starlette.routing import Route
 
-from .agents import ROSTER
+from .config import ConfigError, config_path
+from .llm import llm_from_config
 from .paths import RUNS_DIR
 from .orchestrator import AUTONOMY_LEVELS, Match
-from .projects import Project
-from .scripted import ScriptedLLM
-from .triage import offline_blocker, triage
+from .projects import Project, overview
+from .triage import triage_with_model
 from .ui import build_html
 
 MAX_PROMPT = 4000
@@ -50,8 +51,15 @@ class RunState:
         self.push({"type": "approval_request", "question": question})
         return await self.pending
 
-    async def play(self, match: Match) -> None:
+    async def play(self, prompt: str, project: Project, autonomy: str, llm, runs_dir: Path) -> None:
         try:
+            self.push({"type": "triaging"})
+            plan = await triage_with_model(prompt, project.name, llm, files=overview(project.path))
+            self.push({"type": "triage", "kind": plan.kind, "agents": plan.draft.names})
+            match = Match(
+                plan.ticket.id, llm=llm, autonomy=autonomy, approve=self.approve, listeners=[self.push],
+                runs_dir=runs_dir, ticket=plan.ticket, project=project.path, squad_draft=plan.draft,
+            )
             await match.run()
         except Exception as err:  # shown in the HUD instead of dying silently inside a background task
             self.push({"type": "error", "message": str(err)})
@@ -60,9 +68,9 @@ class RunState:
             self._wake()
 
 
-def create_app(projects: dict[str, Project], llm, runs_dir: Path = RUNS_DIR) -> Starlette:
+def create_app(projects: dict[str, Project], llm_provider: Callable[[], object | None] = llm_from_config, runs_dir: Path = RUNS_DIR) -> Starlette:
+    """`llm_provider` is called on every deploy, so a key added to squad.config.json works without a restart."""
     runs: dict[str, RunState] = {}
-    scripted = isinstance(llm, ScriptedLLM)
 
     def guard(request: Request) -> JSONResponse | None:
         # A custom header forces a CORS preflight that this server never grants, so other websites cannot start runs.
@@ -70,66 +78,42 @@ def create_app(projects: dict[str, Project], llm, runs_dir: Path = RUNS_DIR) -> 
             return JSONResponse({"error": "missing X-Squad header"}, status_code=403)
         return None
 
-    async def parse(request: Request):
-        body = await request.json()
-        prompt, project = str(body.get("prompt", "")).strip(), body.get("project")
-        if not prompt or len(prompt) > MAX_PROMPT:
-            return None, JSONResponse({"error": f"write a problem (1-{MAX_PROMPT} characters)"}, status_code=400)
-        if project not in projects:
-            return None, JSONResponse({"error": "unknown project"}, status_code=400)
-        agents = [str(a).upper() for a in body.get("agents") or []] or None
-        try:
-            plan = triage(prompt, project, agents=agents)
-        except ValueError as err:
-            return None, JSONResponse({"error": str(err)}, status_code=400)
-        return (plan, body), None
-
     async def page(request: Request):
         return HTMLResponse(build_html([], live=True))
 
     async def config(request: Request):
+        try:
+            has_key, problem = llm_provider() is not None, None
+        except ConfigError as err:
+            has_key, problem = False, str(err)
         return JSONResponse({
-            "projects": list(projects), "autonomy": list(AUTONOMY_LEVELS), "agents": list(ROSTER),
-            "llm": "scripted" if scripted else "anthropic",
-        })
-
-    async def preview(request: Request):
-        if denied := guard(request):
-            return denied
-        parsed, error = await parse(request)
-        if error:
-            return error
-        plan, _ = parsed
-        return JSONResponse({
-            "kind": plan.kind,
-            "picks": [{"agent": p.agent, "reason": p.reason} for p in plan.draft.picks],
-            "skipped": [{"agent": p.agent, "reason": p.reason} for p in plan.draft.skipped],
-            "blocker": offline_blocker(plan.draft.names, plan.ticket.id, scripted=scripted),
+            "projects": list(projects), "autonomy": list(AUTONOMY_LEVELS), "hasKey": has_key,
+            "configPath": str(config_path()), "configError": problem,
         })
 
     async def start(request: Request):
         if denied := guard(request):
             return denied
-        parsed, error = await parse(request)
-        if error:
-            return error
-        plan, body = parsed
-        autonomy = body.get("autonomy", "semi")
+        body = await request.json()
+        prompt, project, autonomy = str(body.get("prompt", "")).strip(), body.get("project"), body.get("autonomy", "semi")
+        if not prompt or len(prompt) > MAX_PROMPT:
+            return JSONResponse({"error": f"write a problem (1-{MAX_PROMPT} characters)"}, status_code=400)
+        if project not in projects:
+            return JSONResponse({"error": "unknown project"}, status_code=400)
         if autonomy not in AUTONOMY_LEVELS:
             return JSONResponse({"error": f"autonomy must be one of {AUTONOMY_LEVELS}"}, status_code=400)
-        if blocker := offline_blocker(plan.draft.names, plan.ticket.id, scripted=scripted):
-            return JSONResponse({"error": blocker}, status_code=400)
+        try:
+            llm = llm_provider()
+        except ConfigError as err:
+            return JSONResponse({"error": str(err)}, status_code=400)
+        if llm is None:
+            return JSONResponse({"error": f"No API key yet: add it to {config_path()} (see squad.config.example.json)."}, status_code=400)
         if any(not r.finished for r in runs.values()):
             return JSONResponse({"error": "a match is already running"}, status_code=409)
         run, run_id = RunState(), uuid.uuid4().hex[:8]
         runs[run_id] = run
-        match = Match(
-            plan.ticket.id, llm=llm, autonomy=autonomy, approve=run.approve, listeners=[run.push], runs_dir=runs_dir,
-            ticket=plan.ticket, project=projects[body["project"]].path, squad_draft=plan.draft,
-        )
-        run.task = asyncio.create_task(run.play(match))
+        run.task = asyncio.create_task(run.play(prompt, projects[project], autonomy, llm, runs_dir))
         return JSONResponse({"id": run_id})
-
     async def events(request: Request):
         run = runs.get(request.path_params["run_id"])
         if run is None:
@@ -161,6 +145,6 @@ def create_app(projects: dict[str, Project], llm, runs_dir: Path = RUNS_DIR) -> 
 
     return Starlette(routes=[
         Route("/", page), Route("/api/config", config),
-        Route("/api/triage", preview, methods=["POST"]), Route("/api/runs", start, methods=["POST"]),
+        Route("/api/runs", start, methods=["POST"]),
         Route("/api/runs/{run_id}/events", events), Route("/api/runs/{run_id}/approve", approve, methods=["POST"]),
     ])
