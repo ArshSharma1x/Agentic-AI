@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Squad Match Replay</title>
+<title>Squad</title>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;800&family=Chakra+Petch:wght@400;600&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#0b0e14;--panel:#131822;--line:#252d3d;--text:#e8ecf4;--dim:#7d889c;--red:#ff4655;--cyan:#3ee0ff;--gold:#ffc94d;--green:#4be38a}
@@ -11,15 +11,29 @@ main{max-width:1100px;margin:0 auto;padding:16px}
 header{display:flex;flex-wrap:wrap;gap:12px;align-items:baseline;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:12px}
 h1{margin:0;font-size:30px;font-weight:800}h1 span{color:var(--red)}
 #title{color:var(--dim)}
+#console{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--red);padding:12px 14px;margin-top:14px}
+.k{color:var(--dim);font-size:11px;letter-spacing:.12em;text-transform:uppercase}
+textarea{width:100%;margin-top:6px;background:var(--bg);color:var(--text);border:1px solid var(--line);padding:10px;font:inherit;resize:vertical}
+textarea:focus,select:focus{outline:1px solid var(--red)}
+.crow{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:10px}
+#pick{display:flex;gap:6px;flex-wrap:wrap}
+.pk{padding:3px 10px;border:1px solid var(--line);color:var(--dim);cursor:pointer;font-weight:600;font-size:12px;user-select:none}
+.pk.on{border-color:var(--c);color:var(--c);background:color-mix(in srgb,var(--c) 14%,transparent)}
+#deploy{background:var(--red);border-color:var(--red);color:#fff;font:800 18px "Barlow Condensed";letter-spacing:.1em;padding:6px 22px;margin-left:auto}
+#deploy:disabled{opacity:.35;cursor:not-allowed}
+#preview{margin-top:8px;font-size:13px;color:var(--dim);min-height:20px}#preview b{color:var(--text)}#preview .warn{color:var(--red)}
+#approval{display:none;margin-top:14px;border:2px solid var(--gold);background:var(--panel);padding:12px 14px;align-items:center;gap:12px}
+#approval span{flex:1;color:var(--gold);font-weight:600}
 #phases{display:flex;gap:6px;margin:14px 0;flex-wrap:wrap}
 .chip{padding:5px 14px;border:1px solid var(--line);color:var(--dim);font-family:"Barlow Condensed",sans-serif;font-size:16px;letter-spacing:.08em;clip-path:polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%)}
 .chip.on{background:var(--red);color:#fff;border-color:var(--red)}.chip.done{color:var(--text);border-color:var(--dim)}
-#agents{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+#agents{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
 .card{background:var(--panel);border:1px solid var(--line);border-top:3px solid var(--c);padding:10px 12px;transition:.2s;opacity:.55}
 .card.active{opacity:1;box-shadow:0 0 18px -4px var(--c);transform:translateY(-3px)}
 .card.benched{opacity:.25}
 .card .name{font:800 26px "Barlow Condensed";color:var(--c)}.card .role{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:.1em}
 .card .why{font-size:11px;color:var(--dim);margin-top:6px;min-height:30px}
+.abil{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}.abil i{font-style:normal;font-size:10px;border:1px solid var(--line);padding:0 5px;color:var(--dim)}.abil i b{color:var(--c)}
 .tag{display:inline-block;margin-top:6px;padding:1px 8px;font-size:12px;font-weight:600}
 .tag.pass{background:var(--green);color:#04210f}.tag.fail{background:var(--red);color:#fff}
 .row{display:grid;grid-template-columns:1fr 220px;gap:12px;margin-top:14px}
@@ -29,35 +43,47 @@ h1{margin:0;font-size:30px;font-weight:800}h1 span{color:var(--red)}
 .ev.bad{color:var(--red)}.ev.good{color:var(--green)}.ev.sys{color:var(--gold)}
 #stats{display:grid;gap:10px;align-content:start}
 .stat{background:var(--panel);border:1px solid var(--line);padding:10px 12px}
-.stat .v{font:800 34px "Barlow Condensed";line-height:1}.stat .k{color:var(--dim);font-size:11px;letter-spacing:.12em;text-transform:uppercase}
-#banner{display:none;margin-top:14px;text-align:center;padding:18px;border:2px solid var(--c);color:var(--c);background:var(--panel)}
-#banner .big{font-size:64px;font-weight:800;line-height:1}
+.stat .v{font:800 34px "Barlow Condensed";line-height:1}
+#banner{display:none;margin-top:14px;padding:18px;border:2px solid var(--c);color:var(--c);background:var(--panel)}
+#banner .big{font-size:56px;font-weight:800;line-height:1;text-align:center}#b-t{text-align:center}
+#b-a{white-space:pre-wrap;color:var(--text);margin-top:12px;max-height:260px;overflow:auto;text-align:left;font-size:13px}
 #ctl{display:flex;gap:10px;align-items:center;margin-top:14px}
 button,select{background:var(--panel);color:var(--text);border:1px solid var(--line);padding:6px 14px;font:inherit;cursor:pointer}
-button:hover{border-color:var(--red)}input[type=range]{flex:1;accent-color:var(--red)}
+button:hover:not(:disabled){border-color:var(--red)}input[type=range]{flex:1;accent-color:var(--red)}
 </style></head><body><main>
-<header><h1>Squad <span>Match</span> Replay</h1><div id="title"></div></header>
+<header><h1>Squad <span id="mode">Match</span></h1><div id="title"></div></header>
+<section id="console" hidden>
+  <div class="k">What's the problem?</div>
+  <textarea id="prompt" rows="3" maxlength="4000" placeholder="Ask a question, request a review, or describe a change. The squad is sized to the problem. Try: What does refund() do?"></textarea>
+  <div class="crow"><select id="project" aria-label="project"></select><select id="autonomy" aria-label="autonomy"></select>
+    <div id="pick" title="Leave all off to let triage choose"></div><button id="deploy" disabled>Deploy squad</button></div>
+  <div id="preview"></div>
+</section>
+<div id="approval"><span id="aq"></span><button id="yes">Approve</button><button id="no">Deny</button></div>
 <div id="phases"></div>
 <div id="agents"></div>
 <div class="row"><div id="feed" aria-live="polite"></div>
 <div id="stats"><div class="stat"><div class="v" id="s-tok">0</div><div class="k">tokens</div></div>
 <div class="stat"><div class="v" id="s-calls">0</div><div class="k">tool calls</div></div>
 <div class="stat"><div class="v" id="s-att">0</div><div class="k">attempt</div></div></div></div>
-<div id="banner"><div class="big" id="b-h"></div><div id="b-t"></div></div>
+<div id="banner"><div class="big" id="b-h"></div><div id="b-t"></div><div id="b-a"></div></div>
 <div id="ctl"><button id="play">Pause</button><input id="seek" type="range" min="0" value="0"><select id="speed"><option value="900">0.5x</option><option value="450" selected>1x</option><option value="150">3x</option></select></div>
 </main>
 <script>
+const ROSTER = /*ROSTER*/{}/*ENDROSTER*/;
 const EVENTS = /*EVENTS*/[]/*END*/;
-const ROLE = {RADAR:"Initiator",ATLAS:"Controller",FORGE:"Duelist",WARDEN:"Sentinel",AEGIS:"Sentinel"};
+const ROLE = Object.fromEntries(Object.entries(ROSTER).map(([k, v]) => [k, v.role]));
+const LIVE = /*LIVE*/false/*ENDLIVE*/;
 const COLOR = {Duelist:"#ff4655",Initiator:"#3ee0ff",Controller:"#ffc94d",Sentinel:"#4be38a"};
 const PHASES = ["intel","plan","execute","verify","commit"];
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 const short = (v,n=90) => { const t = (typeof v==="string"?v:JSON.stringify(v)).replace(/\s+/g," "); return t.length>n?t.slice(0,n-3)+"...":t; };
 const col = a => COLOR[ROLE[a]] || "#e8ecf4";
+let PREVIEW = null;
 
 function frame(upto) {
-  const st = {picks:[],skipped:[],phase:null,done:new Set(),active:null,verdicts:{},tokens:0,calls:0,attempt:0,end:null,lines:[]};
+  const st = {picks:[],skipped:[],phase:null,done:new Set(),active:null,verdicts:{},tokens:0,calls:0,attempt:0,end:null,pending:null,lines:[]};
   for (let i = 0; i <= upto; i++) {
     const e = EVENTS[i], line = (cls, who, text) => st.lines.push(`<div class="ev ${cls}"><b ${who?`style="--c:${col(who)}"`:""}>${who||""}</b> ${esc(text)}</div>`);
     switch (e.type) {
@@ -70,9 +96,11 @@ function frame(upto) {
       case "agent_done": st.tokens += e.input_tokens + e.output_tokens; if (st.active===e.agent) st.active = null; break;
       case "verdict": st.verdicts[e.agent] = e.passed; line(e.passed?"good":"bad", e.agent, "verdict "+(e.passed?"PASS":"FAIL")); e.issues.forEach(x => line("bad","", "- "+short(x,140))); break;
       case "retry": st.verdicts = {}; line("sys","", `RETRY: attempt ${e.attempt} rejected, ${e.issues.length} issue(s) sent back to FORGE`); break;
-      case "approval": line("sys","", `APPROVAL ${e.question} -> ${e.approved?"yes":"no"}`); break;
+      case "approval_request": st.pending = e.question; break;
+      case "approval": st.pending = null; line("sys","", `APPROVAL ${e.question} -> ${e.approved?"yes":"no"}`); break;
       case "commit": st.phase = "commit"; st.done.add("verify"); line("good","", "COMMIT "+e.sha); break;
-      case "match_end": st.end = e; st.done = new Set(PHASES); st.phase = null; break;
+      case "error": line("bad","", "ERROR "+e.message); st.end = {success:false, reason:e.message, attempts:st.attempt, tool_calls:st.calls, input_tokens:st.tokens, output_tokens:0, answer:""}; break;
+      case "match_end": st.end = e; st.done = new Set(PHASES); st.phase = null; st.active = null; break;
     }
   }
   return st;
@@ -80,29 +108,74 @@ function frame(upto) {
 
 function draw(i) {
   const s = frame(i);
+  if (LIVE && !EVENTS.length && PREVIEW) { s.picks = PREVIEW.picks; s.skipped = PREVIEW.skipped; }
+  if (LIVE && !EVENTS.length) s.lines.push(`<div class="ev sys"><b></b> Describe a problem above and deploy the squad.</div>`);
   $("title").textContent = s.title || "";
   $("phases").innerHTML = PHASES.map(p => `<div class="chip ${s.phase===p?"on":s.done.has(p)?"done":""}">${p}</div>`).join("");
   const all = [...s.picks.map(p=>({...p,on:true})), ...s.skipped.map(p=>({...p,on:false}))];
   $("agents").innerHTML = all.map(p => {
     const v = s.verdicts[p.agent], tag = v===undefined ? "" : `<span class="tag ${v?"pass":"fail"}">${v?"PASS":"FAIL"}</span>`;
-    return `<div class="card ${p.on?(s.active===p.agent?"active":""):"benched"}" style="--c:${col(p.agent)}"><div class="name">${p.agent}</div><div class="role">${ROLE[p.agent]||""}${p.on?"":" (benched)"}</div><div class="why">${esc(p.reason)}</div>${tag}</div>`;
+    const ab = (ROSTER[p.agent]?.abilities||[]).map(([k,l]) => `<i><b>${k}</b> ${esc(l)}</i>`).join("");
+    return `<div class="card ${p.on?(s.active===p.agent?"active":""):"benched"}" style="--c:${col(p.agent)}"><div class="name">${p.agent}</div><div class="role">${ROLE[p.agent]||""}${p.on?"":" (benched)"}</div><div class="why">${esc(p.reason)}</div><div class="abil">${ab}</div>${tag}</div>`;
   }).join("");
   const feed = $("feed"), stick = feed.scrollTop + feed.clientHeight >= feed.scrollHeight - 30;
   feed.innerHTML = s.lines.join(""); if (stick) feed.scrollTop = feed.scrollHeight;
   const end = s.end, tok = end ? end.input_tokens + end.output_tokens : s.tokens;
   $("s-tok").textContent = tok.toLocaleString(); $("s-calls").textContent = end ? end.tool_calls : s.calls; $("s-att").textContent = end ? end.attempts : s.attempt;
   const b = $("banner"); b.style.display = end ? "block" : "none";
-  if (end) { b.style.setProperty("--c", end.success ? "var(--green)" : "var(--red)"); $("b-h").textContent = end.success ? "Victory" : "Defeat"; $("b-t").textContent = end.reason; }
+  if (end) { b.style.setProperty("--c", end.success ? "var(--green)" : "var(--red)"); $("b-h").textContent = end.success ? "Victory" : "Defeat"; $("b-t").textContent = end.reason; $("b-a").textContent = end.answer || ""; }
+  $("approval").style.display = s.pending ? "flex" : "none"; $("aq").textContent = s.pending || "";
+  return s;
 }
 
-let i = 0, playing = true, timer = null;
-const seek = $("seek"); seek.max = Math.max(EVENTS.length - 1, 0);
-function go(n) { i = Math.min(Math.max(n, 0), EVENTS.length - 1); seek.value = i; draw(i); }
-function tick() { clearTimeout(timer); if (!playing) return; if (i >= EVENTS.length - 1) { playing = false; $("play").textContent = "Replay"; return; } go(i + 1); timer = setTimeout(tick, +$("speed").value); }
-$("play").onclick = () => { if (i >= EVENTS.length - 1) go(0); playing = !playing; $("play").textContent = playing ? "Pause" : "Play"; tick(); };
-seek.oninput = () => { playing = false; $("play").textContent = "Play"; go(+seek.value); };
-$("speed").onchange = tick;
-const start = location.hash.slice(1); // #end or #<frame> opens paused on that frame
-if (EVENTS.length && start) { playing = false; $("play").textContent = "Replay"; go(start === "end" ? EVENTS.length - 1 : +start || 0); }
-else if (EVENTS.length) { go(0); tick(); } else $("title").textContent = "empty trace";
+if (LIVE) {
+  $("mode").textContent = "Live"; $("console").hidden = false; $("ctl").style.display = "none";
+  const api = (path, body) => fetch(path, {method:"POST", headers:{"Content-Type":"application/json","X-Squad":"1"}, body:JSON.stringify(body)}).then(async r => ({ok:r.ok, data:await r.json()}));
+  let source = null, runId = null, running = false, timer = null;
+  const picked = () => [...document.querySelectorAll(".pk.on")].map(x => x.dataset.a);
+  const request = () => ({prompt:$("prompt").value, project:$("project").value, autonomy:$("autonomy").value, agents:picked()});
+  const busy = v => { running = v; $("deploy").disabled = v || !$("prompt").value.trim(); $("deploy").textContent = v ? "In match..." : "Deploy squad"; };
+  async function refresh() {
+    if (running || !$("prompt").value.trim()) { if (!running) $("preview").textContent = ""; return busy(running); }
+    const {ok, data} = await api("/api/triage", request());
+    if (!ok) { $("preview").innerHTML = `<span class="warn">${esc(data.error)}</span>`; $("deploy").disabled = true; return; }
+    PREVIEW = data; if (!EVENTS.length) draw(-1);
+    const names = data.picks.map(p => p.agent).join(" + ");
+    $("preview").innerHTML = `Triage: <b>${data.kind}</b> &rarr; <b>${names}</b> (${data.picks.length} of ${data.picks.length + data.skipped.length} agents)` + (data.blocker ? ` <span class="warn">${esc(data.blocker)}</span>` : "");
+    $("deploy").disabled = !!data.blocker;
+  }
+  const later = () => { clearTimeout(timer); timer = setTimeout(refresh, 300); };
+  fetch("/api/config").then(r => r.json()).then(c => {
+    $("project").innerHTML = c.projects.map(p => `<option>${p}</option>`).join("");
+    $("autonomy").innerHTML = c.autonomy.map(a => `<option ${a==="semi"?"selected":""}>${a}</option>`).join("");
+    $("pick").innerHTML = c.agents.map(a => `<span class="pk" data-a="${a}" style="--c:${col(a)}">${a}</span>`).join("");
+    $("pick").onclick = e => { if (e.target.dataset.a) { e.target.classList.toggle("on"); later(); } };
+    $("title").textContent = c.llm === "scripted" ? "offline model: can explore, test and scan; code changes need ANTHROPIC_API_KEY" : "live model";
+  });
+  ["prompt","project"].forEach(id => $(id).addEventListener("input", later));
+  $("deploy").onclick = async () => {
+    const {ok, data} = await api("/api/runs", request());
+    if (!ok) { $("preview").innerHTML = `<span class="warn">${esc(data.error)}</span>`; return; }
+    runId = data.id; EVENTS.length = 0; busy(true); draw(-1);
+    source = new EventSource(`/api/runs/${data.id}/events`);
+    source.onmessage = m => { EVENTS.push(JSON.parse(m.data)); const last = EVENTS[EVENTS.length-1].type; draw(EVENTS.length-1); if (last === "match_end" || last === "error") { source.close(); busy(false); } };
+    source.onerror = () => { source.close(); busy(false); };
+  };
+  $("yes").onclick = () => decide(true); $("no").onclick = () => decide(false);
+  function decide(approved) { api(`/api/runs/${runId}/approve`, {approved}); }
+  draw(-1);
+} else {
+  $("mode").textContent = "Replay";
+  let i = 0, playing = true, timer = null;
+  const seek = $("seek"); seek.max = Math.max(EVENTS.length - 1, 0);
+  function go(n) { i = Math.min(Math.max(n, 0), EVENTS.length - 1); seek.value = i; draw(i); }
+  function tick() { clearTimeout(timer); if (!playing) return; if (i >= EVENTS.length - 1) { playing = false; $("play").textContent = "Replay"; return; } go(i + 1); timer = setTimeout(tick, +$("speed").value); }
+  $("play").onclick = () => { if (i >= EVENTS.length - 1) go(0); playing = !playing; $("play").textContent = playing ? "Pause" : "Play"; tick(); };
+  seek.oninput = () => { playing = false; $("play").textContent = "Play"; go(+seek.value); };
+  $("speed").onchange = tick;
+  const start = location.hash.slice(1); // #end or #<frame> opens paused on that frame
+  if (EVENTS.length && start) { playing = false; $("play").textContent = "Replay"; go(start === "end" ? EVENTS.length - 1 : +start || 0); }
+  else if (EVENTS.length) { go(0); tick(); }
+  else $("title").textContent = "empty trace";
+}
 </script></body></html>
