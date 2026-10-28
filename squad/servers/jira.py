@@ -1,6 +1,8 @@
 """MCP server standing in for Jira. Reads tickets from data/tickets.json."""
 
 import json
+import os
+from pathlib import Path
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
@@ -11,7 +13,9 @@ server = MCPServer("jira")
 
 
 def _tickets() -> dict:
-    return json.loads((DATA_DIR / "tickets.json").read_text())
+    # a match with a free-text request points this at its own one-ticket file
+    path = Path(os.environ["SQUAD_TICKETS"]) if "SQUAD_TICKETS" in os.environ else DATA_DIR / "tickets.json"
+    return json.loads(path.read_text())
 
 
 @server.tool()

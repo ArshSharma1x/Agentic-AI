@@ -13,6 +13,11 @@ def build_prompt(agent: str, ticket: Ticket, board: dict, attempt: int, feedback
 
     if agent == "RADAR":
         docs = ", ".join(ticket.linked_docs) or "none"
+        if ticket.type == "question":
+            return (
+                f"{header}\nAnswer this from the code and docs in the workspace; read what you need. Put the answer in "
+                "the summary and the evidence (files, functions) in key_facts, then call submit_intel."
+            )
         return f"{header}\nLinked docs: {docs}\nGather the context the squad needs, then call submit_intel."
 
     if agent == "ATLAS":
@@ -35,7 +40,12 @@ def build_prompt(agent: str, ticket: Ticket, board: dict, attempt: int, feedback
         return "\n".join(parts)
 
     # Sentinels
-    work = board.get("work", {})
+    work = board.get("work")
+    if not work:
+        return (
+            f"{header}\nNothing has been changed. Review the code in the workspace as it stands against the request, "
+            "then call submit_verdict. Fail it only for real problems, and name each one."
+        )
     return (
         f"{header}\nAcceptance criteria:\n{_bullets(plan['criteria'])}\n\n"
         f"Implementer's summary: {work.get('summary', '(none)')}\n"
