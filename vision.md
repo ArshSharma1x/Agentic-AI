@@ -78,11 +78,23 @@ The product is a graphical, video-game-style interface, not a terminal. Designs 
 
 ## Status
 
-Concept stage. No code yet.
+Phase 1 is built and merged. A match runs end to end over real MCP servers:
+
+- Squad of five (RADAR, ATLAS, FORGE, WARDEN, AEGIS), drafted per ticket with logged reasons. The other three named characters (RIVET, CIPHER, ARCHON) are design-only for now.
+- Local MCP servers for Jira, Confluence and a sandboxed workspace (files, tests, git, security scan). Each agent can call only its own tools, enforced in code, and `tests/` is read-only to agents.
+- Retry loop with Sentinel gates, autonomy levels (manual, semi, full) and an approval gate before the commit.
+- Every match writes a JSONL trace, replayed in the terminal or as a standalone game-style HTML page (`squad ui`).
+- `squad eval` compares the squad with a solo FORGE + WARDEN baseline and audits both outputs the same way. On the payments ticket the solo run ships a refund with no authorization check; the squad does not.
+- CI runs the test suite on every PR.
+
+Not done yet, stated plainly:
+
+- All results so far use the scripted model (real tools, canned decisions). It proves the machinery, not model quality. The Anthropic-backed path is written but has not run live.
+- The security scanner is a heuristic tripwire, not a SAST tool.
+- Figma and Slack MCP servers, cost tracking against a budget, and multi-repo support are still Phase 2.
 
 ## Open questions
 
-- Language and framework preference (Python with the Anthropic SDK and the MCP Python SDK is the proposed default)
-- Target demo: a CLI, or a local web UI with the match replay
 - Which external system to wire first beyond the local stand-ins
-- Agent identity: named characters with portraits and abilities, or abstract roles
+- Whether to build the remaining three characters, or keep the squad at five
+- First live-model eval run: how many seeded tickets are enough to say anything meaningful
