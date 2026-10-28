@@ -1,0 +1,28 @@
+{
+  "PAY-482": {
+    "id": "PAY-482",
+    "title": "Add refund logic to the payments module",
+    "type": "feature",
+    "description": "Customers need to be refunded for payments. Implement refund(store, user_id, payment_id, amount_cents, idempotency_key) following the refund policy doc. Partial refunds are allowed.",
+    "labels": ["payments", "security"],
+    "repos": ["refunds_api"],
+    "sandbox": "refunds_api",
+    "linked_docs": ["DOC-REFUND-POLICY"],
+    "acceptance_criteria": []
+  },
+  "BUG-101": {
+    "id": "BUG-101",
+    "title": "Amounts under one dollar render without a leading zero",
+    "type": "bug",
+    "description": "format_amount(5) returns '$0.5' instead of '$0.05'.",
+    "labels": ["bug"],
+    "repos": ["amount_format"],
+    "sandbox": "amount_format",
+    "linked_docs": [],
+    "acceptance_criteria": [
+      "format_amount(5) == '$0.05'",
+      "format_amount(1999) == '$19.99'",
+      "format_amount(0) == '$0.00'"
+    ]
+  }
+}
