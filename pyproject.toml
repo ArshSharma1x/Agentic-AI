@@ -21,5 +21,8 @@ squad = "squad.__main__:main"
 [tool.setuptools.packages.find]
 include = ["squad*"]
 
+[tool.setuptools.package-data]
+squad = ["ui_template.html"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -11,6 +11,7 @@ from .orchestrator import AUTONOMY_LEVELS, Match
 from .render import render
 from .scripted import ScriptedLLM
 from .trace import Trace
+from .ui import write_replay
 
 
 def _print_event(event: dict) -> None:
@@ -64,6 +65,18 @@ def _replay(args) -> int:
     return 0
 
 
+def _ui(args) -> int:
+    path = Path(args.trace)
+    if not path.is_file():
+        sys.exit(f"no such trace file: {path}")
+    out = write_replay(path, Path(args.output) if args.output else path.with_name("replay.html"))
+    print(out)
+    if args.open:
+        import webbrowser
+        webbrowser.open(out.resolve().as_uri())
+    return 0
+
+
 def _eval(args) -> int:
     rows = asyncio.run(run_eval(args.tickets, llm_factory=lambda: _pick_llm(args.llm)))
     print(format_report(rows))
@@ -84,6 +97,12 @@ def main(argv: list[str] | None = None) -> int:
     replay = sub.add_parser("replay", help="replay a saved match trace")
     replay.add_argument("trace", help="path to a trace.jsonl file")
     replay.set_defaults(handler=_replay)
+
+    ui = sub.add_parser("ui", help="write a standalone HTML replay of a trace")
+    ui.add_argument("trace", help="path to a trace.jsonl file")
+    ui.add_argument("-o", "--output", help="output file (default: replay.html next to the trace)")
+    ui.add_argument("--open", action="store_true", help="open the replay in the browser")
+    ui.set_defaults(handler=_ui)
 
     ev = sub.add_parser("eval", help="compare the full squad with a solo FORGE + WARDEN baseline")
     ev.add_argument("tickets", nargs="*", default=["PAY-482", "BUG-101"], help="ticket ids (default: all demo tickets)")
