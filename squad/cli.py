@@ -7,6 +7,8 @@ from pathlib import Path
 from .evals import format_report, run_eval
 from .llm import AnthropicLLM
 from .mcp_host import ToolCallError
+from .projects import discover
+from .triage import offline_blocker, triage
 from .orchestrator import AUTONOMY_LEVELS, Match
 from .render import render
 from .scripted import ScriptedLLM
@@ -65,6 +67,28 @@ def _replay(args) -> int:
     return 0
 
 
+def _ask_cmd(args) -> int:
+    projects = discover([Path(p) for p in args.project])
+    if args.on not in projects:
+        sys.exit(f"unknown project {args.on!r}; choose one of: {', '.join(projects)}")
+    agents = [a.strip().upper() for a in args.agents.split(",")] if args.agents else None
+    try:
+        plan = triage(args.prompt, args.on, agents=agents)
+    except ValueError as err:
+        sys.exit(str(err))
+    llm = _pick_llm(args.llm)
+    blocker = offline_blocker(plan.draft.names, plan.ticket.id, scripted=isinstance(llm, ScriptedLLM))
+    if blocker:
+        sys.exit(blocker)
+    match = Match(
+        plan.ticket.id, llm=llm, autonomy=args.autonomy, approve=_ask, max_retries=2, listeners=[_print_event],
+        ticket=plan.ticket, project=projects[args.on].path, squad_draft=plan.draft,
+    )
+    result = asyncio.run(match.run())
+    print(result.trace_path)
+    return 0 if result.success else 1
+
+
 def _ui(args) -> int:
     path = Path(args.trace)
     if not path.is_file():
@@ -97,6 +121,15 @@ def main(argv: list[str] | None = None) -> int:
     replay = sub.add_parser("replay", help="replay a saved match trace")
     replay.add_argument("trace", help="path to a trace.jsonl file")
     replay.set_defaults(handler=_replay)
+
+    ask = sub.add_parser("ask", help="give the squad a problem in plain words; it sizes the squad itself")
+    ask.add_argument("prompt")
+    ask.add_argument("--on", default="refunds_api", help="project to work on (default: refunds_api)")
+    ask.add_argument("--project", action="append", default=[], help="add your own project folder (copied, never edited in place)")
+    ask.add_argument("--agents", help="override the squad, e.g. RADAR,AEGIS")
+    ask.add_argument("--llm", choices=("auto", "scripted", "anthropic"), default="auto")
+    ask.add_argument("--autonomy", choices=AUTONOMY_LEVELS, default="semi")
+    ask.set_defaults(handler=_ask_cmd)
 
     ui = sub.add_parser("ui", help="write a standalone HTML replay of a trace")
     ui.add_argument("trace", help="path to a trace.jsonl file")
