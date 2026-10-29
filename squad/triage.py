@@ -24,6 +24,7 @@ LABEL_WORDS = {
     "pii": r"\b(pii|personal data|secrets?)\b",
     "security": r"\b(security|secure|vulnerab\w*)\b",
 }
+GREETING = re.compile(r"^(hi|hello|hey|yo|thanks|thank you|thx|cheers|good (morning|evening|afternoon))\b[\s!.,]*$", re.I)
 ORDER = ["RADAR", "ATLAS", "FORGE", "WARDEN", "AEGIS"]
 
 
@@ -72,9 +73,13 @@ def _ticket(text: str, project: str, ticket_id: str, kind: str) -> Ticket:
     )
 
 
-def triage(text: str, project: str, *, agents: list[str] | None = None, ticket_id: str | None = None) -> Triage:
+def triage(
+    text: str, project: str, *, agents: list[str] | None = None, ticket_id: str | None = None, allow_chat: bool = False
+) -> Triage:
     kind, why = _kind(text)
     ticket = _ticket(text, project, ticket_id or f"ASK-{uuid.uuid4().hex[:5].upper()}", kind)
+    if allow_chat and not agents and GREETING.match(text.strip()):
+        return Triage("chat", _picks(), ticket)
     if agents:
         unknown = [a for a in agents if a not in ROSTER]
         if unknown:
@@ -103,7 +108,7 @@ TRIAGE_TOOL = {
     "input_schema": {
         "type": "object",
         "properties": {
-            "kind": {"type": "string", "enum": ["question", "plan", "review", "test", "change"]},
+            "kind": {"type": "string", "enum": ["chat", "question", "plan", "review", "test", "change"]},
             "agents": {
                 "type": "array",
                 "items": {
@@ -124,18 +129,33 @@ DISPATCH = AgentSpec(
         "RADAR answers questions and gathers context (read-only). ATLAS writes plans and acceptance criteria. "
         "FORGE writes and changes code. WARDEN runs the tests and checks the work meets the criteria. AEGIS reviews "
         "for security problems. A question needs RADAR alone. A security audit needs AEGIS. Only code changes need "
-        "FORGE. Do not add agents the job does not need. Call submit_triage once."
+        "FORGE. Do not add agents the job does not need. A greeting, thanks, or a general question that does not depend on "
+        "the project's files needs no agents: use kind chat with an empty agents list. Call submit_triage once."
     ),
 )
 
 
-async def triage_with_model(text: str, project: str, llm, *, files: list[str] = (), ticket_id: str | None = None) -> Triage:
+CHAT = AgentSpec(
+    name="SQUAD", role=Role.CONTROLLER, model=FAST_MODEL, abilities=(), deliverable="",
+    system=(
+        "You are the front desk of a small squad of software agents (RADAR answers questions about the code, ATLAS plans, "
+        "FORGE writes code, WARDEN runs tests, AEGIS reviews security). Reply briefly and plainly. For anything that needs "
+        "the project's files or changes to them, tell the user to ask for it and the right agents will be sent in."
+    ),
+)
+
+
+async def triage_with_model(
+    text: str, project: str, llm, *, files: list[str] = (), ticket_id: str | None = None,
+    history: str = "", allow_chat: bool = False,
+) -> Triage:
     """Let a model choose the squad, then apply the safety rules that must hold whatever it says.
 
     Falls back to the keyword rules if the model fails or returns nothing usable.
     """
-    fallback = triage(text, project, ticket_id=ticket_id)
-    prompt = f"Project: {project}\nFiles: {', '.join(list(files)[:60]) or '(unknown)'}\n\nRequest:\n{text}"
+    fallback = triage(text, project, ticket_id=ticket_id, allow_chat=allow_chat)
+    earlier = f"Earlier in this session:\n{history}\n\n" if history else ""
+    prompt = f"Project: {project}\nFiles: {', '.join(list(files)[:60]) or '(unknown)'}\n\n{earlier}Request:\n{text}"
     try:
         reply = await llm.complete(
             agent=DISPATCH, messages=[{"role": "user", "content": prompt}], tools=[TRIAGE_TOOL], meta={}
@@ -145,6 +165,12 @@ async def triage_with_model(text: str, project: str, llm, *, files: list[str] = 
         chosen = {a["name"]: a["reason"] for a in call["input"]["agents"] if a.get("name") in ROSTER}
     except Exception:
         return fallback
+    if kind == "chat":
+        if allow_chat and not chosen:
+            return Triage("chat", _picks(), fallback.ticket)
+        kind = "question" if chosen else kind
+        if not allow_chat and not chosen:
+            return fallback
     if not chosen:
         return fallback
     ticket = _ticket(text, project, fallback.ticket.id, kind)

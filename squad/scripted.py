@@ -115,7 +115,7 @@ class ScriptedLLM:
         from .triage import triage
 
         request = messages[0]["content"].split("Request:\n", 1)[-1]
-        plan = triage(request, "project")
+        plan = triage(request, "project", allow_chat=True)
         return [_use("submit_triage", kind=plan.kind, agents=[{"name": p.agent, "reason": p.reason} for p in plan.draft.picks])]
 
     def _explore(self, step, messages, meta):
