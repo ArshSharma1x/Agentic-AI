@@ -16,17 +16,26 @@ For each ticket, an explicit and logged draft picks the squad:
 
 The match runs intel, plan, execute and verify, with retries. A commit happens only after the verify gates pass and the autonomy level allows it. Every agent can call only its own MCP tools, and `tests/` is read-only to agents. Each match writes a `trace.jsonl`.
 
-## Run
-
 ## Quick start
 
 ```
 cp squad.config.example.json squad.config.json    # then put your Anthropic key in it (the file is gitignored)
 cd /path/to/your/project
-/path/to/Agentic-AI/.venv/bin/python -m squad start
+/path/to/Agentic-AI/.venv/bin/python -m squad
 ```
 
-Type any problem. A dispatcher reads it and sends in only the agents the job needs: a question gets one agent, a security audit gets AEGIS, a code change gets the full squad with a QA gate (and a security gate for payments, auth or PII). The squad works on a copy of the folder you started in, so your files are never edited in place. A key is required because every agent is a model call; the app tells you where to put it, and picks it up without a restart. The `ANTHROPIC_API_KEY` environment variable also works and takes priority.
+This opens the squad terminal. Type what you need, the way you would in any coding assistant. A dispatcher reads each message and sends in only the agents the job needs: a greeting gets a plain reply, a question gets RADAR, a security audit gets AEGIS, a code change gets FORGE with a QA gate (plus a security gate for payments, auth or PII). The session remembers earlier turns, so follow-ups like "now add a test for that" work.
+
+The squad works on a copy of your folder, so nothing in your files changes until you say so:
+
+| Command | Does |
+|---|---|
+| `/diff` | every change the squad has made this session |
+| `/apply` | copies those changes into your real folder, after asking, and skips files you edited meanwhile |
+| `/autonomy manual\|semi\|full` | when you are asked: before each phase, before a commit, or never |
+| `/squad`, `/new`, `/help`, `/exit` | the roster, a fresh session, help, leave |
+
+A key is required because every agent is a model call; the terminal tells you where to put it. The `ANTHROPIC_API_KEY` environment variable also works and takes priority. `python -m squad start --web` opens the browser version of the same thing.
 
 `squad.config.json` also lists the MCP servers (`mcpServers`, same shape as `.mcp.json`). They default to the bundled Jira, Confluence and workspace stand-ins; point a name at a real MCP server command to swap it.
 
