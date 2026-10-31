@@ -16,7 +16,8 @@ dependencies = [
 dev = ["pytest>=9"]
 
 [project.scripts]
-squad = "squad.__main__:main"
+squad = "squad.cli:main"
+agentic = "squad.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["squad*"]
