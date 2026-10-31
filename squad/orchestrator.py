@@ -117,7 +117,7 @@ class Match:
         try:
             attempts, success, reason = await self._play(ticket, names, host, board, trace)
             if success and "FORGE" in names:
-                if await self._gate(trace, f"Commit the changes for {ticket.id}?", commit=True):
+                if await self._gate(trace, f"Commit the changes for {ticket.id} in the working copy (your folder is not touched)?", commit=True):
                     commit = await host.call("workspace__git_commit", {"message": f"{ticket.id}: {ticket.title}"})
                     trace.emit("commit", sha=commit)
                     reason = "verified and committed"

@@ -65,7 +65,11 @@ class Session:
         """A request for a new folder elsewhere gets an empty workspace, not a copy of the current project."""
         dest = Path(destination).expanduser()
         home = Path.home().resolve()
-        if not dest.is_absolute() or home not in (dest.resolve(), *dest.resolve().parents) or dest.resolve() == home:
+        if dest.suffix:  # the user named a file, not a folder: its folder is the target and the file keeps its own name
+            dest = dest.parent
+        elif dest.resolve() == home:
+            dest = home / "squad-output"
+        if not dest.is_absolute() or home not in (dest.resolve(), *dest.resolve().parents):
             self.out(f"\nI only create new folders inside your home directory ({home}); {destination} is not.")
             return False
         base = self.runs_dir / f"{time.strftime('%Y%m%d-%H%M%S')}-new"
