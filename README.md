@@ -16,15 +16,23 @@ For each ticket, an explicit and logged draft picks the squad:
 
 The match runs intel, plan, execute and verify, with retries. A commit happens only after the verify gates pass and the autonomy level allows it. Every agent can call only its own MCP tools, and `tests/` is read-only to agents. Each match writes a `trace.jsonl`.
 
-## Quick start
+## Setup
+
+You need Python 3.11+, git, and an Anthropic API key (console.anthropic.com). Every agent is a model call, so a run costs a few cents of API usage. macOS and Linux are what has been tested.
 
 ```
-cp squad.config.example.json squad.config.json    # then put your Anthropic key in it (the file is gitignored)
+git clone https://github.com/ArshSharma1x/Agentic-AI.git && cd Agentic-AI
+python3 -m venv .venv && .venv/bin/pip install -e .
+cp squad.config.example.json squad.config.json    # then put your key in it (the file is gitignored)
+ln -s "$PWD/.venv/bin/agentic" ~/.local/bin/agentic   # optional: lets you type `agentic` anywhere
+```
+
+## Use
+
+```
 cd /path/to/your/project
-/path/to/Agentic-AI/.venv/bin/python -m squad
+agentic          # or: /path/to/Agentic-AI/.venv/bin/python -m squad
 ```
-
-To type just `agentic` from any folder, install once with `.venv/bin/pip install -e .` and link it onto your PATH: `ln -s /path/to/Agentic-AI/.venv/bin/agentic ~/.local/bin/agentic`.
 
 This opens the squad terminal. Type what you need, the way you would in any coding assistant. A dispatcher reads each message and sends in only the agents the job needs: a greeting gets a plain reply, a question gets RADAR, a security audit gets AEGIS, a code change gets FORGE with a QA gate (plus a security gate for payments, auth or PII). The session remembers earlier turns, so follow-ups like "now add a test for that" work.
 
@@ -39,7 +47,9 @@ The squad works on a copy of your folder, so nothing in your files changes until
 
 A key is required because every agent is a model call; the terminal tells you where to put it. The `ANTHROPIC_API_KEY` environment variable also works and takes priority. `python -m squad start --web` opens the browser version of the same thing.
 
-`squad.config.json` also lists the MCP servers (`mcpServers`, same shape as `.mcp.json`). They default to the bundled Jira, Confluence and workspace stand-ins; point a name at a real MCP server command to swap it.
+`squad.config.json` can also list MCP servers under `mcpServers` (same shape as `.mcp.json`). They default to the bundled Jira, Confluence and workspace stand-ins; point a name at a real MCP server command to swap it. Relative commands are resolved from the config file's folder.
+
+Limits to know: tests run with `pytest` using the squad's own Python, so a project whose tests need their own installed dependencies will fail QA; other test runners (npm, JUnit, go test) are not supported yet, and a project with no pytest tests simply skips the test step.
 
 ## Other commands
 

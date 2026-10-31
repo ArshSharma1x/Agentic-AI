@@ -45,7 +45,7 @@ def test_the_committed_example_is_valid_and_has_no_usable_key(monkeypatch):
 
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     config = load_config(ROOT / "squad.config.example.json")
-    assert config.api_key is None and set(config.mcp_servers) == {"jira", "confluence", "workspace"}
+    assert config.api_key is None and config.mcp_servers == {}  # built-in servers are the default
 
 
 def test_relative_server_commands_resolve_against_the_config_file(tmp_path, monkeypatch):
