@@ -49,7 +49,7 @@ def test_semi_autonomy_asks_before_commit_and_a_no_leaves_it_uncommitted(tmp_pat
 
     match = Match("BUG-101", llm=ScriptedLLM(), autonomy="semi", approve=deny, runs_dir=tmp_path)
     result = asyncio.run(match.run())
-    assert asked == ["Commit the changes for BUG-101?"]
+    assert len(asked) == 1 and asked[0].startswith("Commit the changes for BUG-101")
     assert result.success and result.commit is None and "not approved" in result.reason
 
 

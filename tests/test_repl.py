@@ -138,3 +138,24 @@ def test_new_folders_outside_home_are_refused(tmp_path, monkeypatch):
     s = Session(discover(demo=True)["refunds_api"], FrontDesk(), runs_dir=tmp_path / "runs", out=lines.append)
     asyncio.run(s.handle("make a folder"))
     assert any("only create new folders inside your home" in l for l in lines)
+
+
+def test_a_destination_that_names_a_file_applies_into_its_folder(tmp_path, monkeypatch):
+    from squad.triage import Triage, triage
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    lines = []
+
+    async def yes(question):
+        return True
+
+    async def fake_triage(text, project, llm, **kw):
+        plan = triage(text, project)
+        return Triage(plan.kind, plan.draft, plan.ticket, str(tmp_path / "WordSum.java"))
+
+    monkeypatch.setattr("squad.repl.triage_with_model", fake_triage)
+    s = Session(discover(demo=True)["refunds_api"], FrontDesk(), autonomy="full", runs_dir=tmp_path / "runs", out=lines.append, ask=yes)
+    asyncio.run(s.handle("What is in here?"))
+    (s.workspace / "WordSum.java").write_text("class WordSum {}\n")
+    asyncio.run(s.handle("/apply"))
+    assert (tmp_path / "WordSum.java").is_file()
