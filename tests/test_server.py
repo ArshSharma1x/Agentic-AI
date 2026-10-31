@@ -58,7 +58,7 @@ def test_deploying_without_a_key_explains_where_to_put_it(tmp_path):
     finally:
         server.should_exit = True
         thread.join(5)
-    assert status == 400 and "No API key yet" in data["error"] and "squad.config.example.json" in data["error"]
+    assert status == 400 and "No model available" in data["error"] and "squad.config.example.json" in data["error"]
 
 
 def test_a_question_streams_a_full_match_over_sse(base_url):

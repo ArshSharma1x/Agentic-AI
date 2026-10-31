@@ -141,7 +141,7 @@ if (LIVE) {
       $("autonomy").innerHTML = c.autonomy.map(a => `<option ${a==="semi"?"selected":""}>${a}</option>`).join("");
     }
     $("setup").innerHTML = c.configError ? `<span class="warn">${esc(c.configError)}</span>`
-      : hasKey ? "" : `<b>No API key yet.</b> Copy <code>squad.config.example.json</code> to <code>${esc(c.configPath)}</code> and put your Anthropic key in it. Then press Deploy: no restart needed.`;
+      : hasKey ? "" : `<b>No model yet.</b> Log in to Claude Code (run <code>claude</code> in a terminal), or copy <code>squad.config.example.json</code> to <code>${esc(c.configPath)}</code> and put an Anthropic API key in it. Then press Deploy: no restart needed.`;
     $("title").textContent = hasKey ? "model connected" : "";
     sync();
   });

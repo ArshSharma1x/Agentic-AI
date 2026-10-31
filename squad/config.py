@@ -18,6 +18,7 @@ class ConfigError(Exception):
 class Config:
     api_key: str | None = None
     mcp_servers: dict = field(default_factory=dict)
+    provider: str = "auto"  # auto, api or claude-code
 
 
 def config_path() -> Path:
@@ -40,4 +41,7 @@ def load_config(path: Path | None = None) -> Config:
     for name, spec in servers.items():
         if not isinstance(spec, dict) or "command" not in spec:
             raise ConfigError(f"{path}: mcpServers.{name} needs a \"command\"")
-    return Config(api_key=key, mcp_servers=servers)
+    provider = raw.get("provider", "auto")
+    if provider not in ("auto", "api", "claude-code"):
+        raise ConfigError(f"{path}: provider must be auto, api or claude-code")
+    return Config(api_key=key, mcp_servers=servers, provider=provider)

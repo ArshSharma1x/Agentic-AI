@@ -1,5 +1,6 @@
 """The model boundary. Agents only see `LLM.complete`, so the provider can be swapped or scripted."""
 
+import os
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -46,9 +47,28 @@ class AnthropicLLM:
         return LLMResponse(blocks, response.usage.input_tokens, response.usage.output_tokens)
 
 
-def llm_from_config() -> AnthropicLLM | None:
-    """A model client if a key is configured (squad.config.json or the environment), else None."""
+def llm_from_config() -> LLM | None:
+    """A model client, or None. Order: an API key (config file or environment), then a logged-in Claude Code.
+
+    `provider` in squad.config.json (or SQUAD_PROVIDER) can force "api" or "claude-code"; the default is "auto".
+    """
+    from .claude_code import ClaudeCodeLLM, claude_code_ready
     from .config import load_config
 
-    key = load_config().api_key
-    return AnthropicLLM(api_key=key) if key else None
+    config = load_config()
+    mode = os.environ.get("SQUAD_PROVIDER") or config.provider
+    if mode in ("auto", "api") and config.api_key:
+        return AnthropicLLM(api_key=config.api_key)
+    if mode in ("auto", "claude-code") and claude_code_ready():
+        return ClaudeCodeLLM()
+    return None
+
+
+def describe(llm) -> str:
+    return "Claude Code subscription" if type(llm).__name__ == "ClaudeCodeLLM" else "Anthropic API key"
+
+
+def no_model_message() -> str:
+    from .config import config_path
+
+    return f"No model available: log in to Claude Code (run `claude`), or add an Anthropic API key to {config_path()} (see squad.config.example.json)."

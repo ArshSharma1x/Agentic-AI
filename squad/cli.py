@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from .evals import format_report, run_eval
-from .llm import AnthropicLLM, llm_from_config
+from .llm import describe, llm_from_config, no_model_message
 from .mcp_host import ToolCallError
 from .config import ConfigError, config_path, load_config
 from .projects import discover, overview
@@ -28,7 +28,7 @@ def _pick_llm(choice: str):
     """For the dev tools (`run`, `eval`): the scripted model unless a key is configured and asked for."""
     llm = llm_from_config() if choice != "scripted" else None
     if choice == "anthropic" and llm is None:
-        sys.exit(f"No API key yet: copy squad.config.example.json to {config_path()} and add your key.")
+        sys.exit(no_model_message())
     if llm:
         return llm
     if choice == "auto" and not _pick_llm.warned:
@@ -72,7 +72,7 @@ def _ask_cmd(args) -> int:
     except ConfigError as err:
         sys.exit(str(err))
     if llm is None:
-        sys.exit(f"No API key yet: copy squad.config.example.json to {config_path()} and add your key.")
+        sys.exit(no_model_message())
     plan = asyncio.run(triage_with_model(args.prompt, name, llm, files=overview(projects[name].path)))
     match = Match(
         plan.ticket.id, llm=llm, autonomy=args.autonomy, approve=_ask, listeners=[_print_event],
@@ -95,7 +95,7 @@ def _start(args) -> int:
     except ConfigError as err:
         sys.exit(str(err))
     if llm is None:
-        sys.exit(f"No API key yet: copy squad.config.example.json to {config_path()} and add your key.")
+        sys.exit(no_model_message())
     return run_repl(Session(projects[name], llm, autonomy=args.autonomy))
 
 
@@ -109,7 +109,8 @@ def _web(args, projects) -> int:
 
     url = f"http://127.0.0.1:{args.port}"
     try:
-        status = "model connected" if load_config().api_key else f"no API key yet: add it to {config_path()}"
+        llm = llm_from_config()
+        status = f"model: {describe(llm)}" if llm else no_model_message()
     except ConfigError as err:
         status = str(err)
     print(f"Squad is live at {url}  (Ctrl+C to stop)\nWorking on: {', '.join(projects)}  |  {status}")
@@ -181,7 +182,8 @@ def main(argv: list[str] | None = None) -> int:
     ev.add_argument("--llm", choices=("auto", "scripted", "anthropic"), default="scripted")
     ev.set_defaults(handler=_eval)
 
+    argv = sys.argv[1:] if argv is None else argv
+    if not argv or (argv[0].startswith("-") and argv[0] not in ("-h", "--help")):
+        argv = ["start", *argv]  # bare `agentic`, or `agentic --autonomy full`, opens the terminal
     args = parser.parse_args(argv)
-    if args.command is None:  # bare `squad` opens the terminal
-        args = parser.parse_args(["start"])
     return args.handler(args)
