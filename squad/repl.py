@@ -9,7 +9,8 @@ from collections.abc import Callable
 from pathlib import Path
 
 from .agents import ROSTER
-from .config import ConfigError, config_path, load_config
+from .config import ConfigError
+from .llm import describe
 from .orchestrator import AUTONOMY_LEVELS, Match
 from .paths import RUNS_DIR
 from .projects import Project, overview
@@ -74,7 +75,7 @@ class Session:
 
     def banner(self) -> str:
         try:
-            status = "model connected" if load_config().api_key else f"no API key yet: add it to {config_path()}"
+            status = f"model: {describe(self.llm)}"
         except ConfigError as err:
             status = str(err)
         roster = "  ".join(f"{ROLE_COLORS[a.role.value]}{a.name}{RESET}" for a in ROSTER.values())

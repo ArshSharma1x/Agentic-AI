@@ -18,12 +18,17 @@ The match runs intel, plan, execute and verify, with retries. A commit happens o
 
 ## Setup
 
-You need Python 3.11+, git, and an Anthropic API key (console.anthropic.com). Every agent is a model call, so a run costs a few cents of API usage. macOS and Linux are what has been tested.
+You need Python 3.11+, git, and one of:
+
+- **Claude Code**, installed and logged in with a subscription (run `claude` once to check). No key needed; the squad uses your login.
+- **An Anthropic API key** (console.anthropic.com), which is faster and cheaper per run. A key, if present, is used first.
+
+macOS and Linux are what has been tested.
 
 ```
 git clone https://github.com/ArshSharma1x/Agentic-AI.git && cd Agentic-AI
 python3 -m venv .venv && .venv/bin/pip install -e .
-cp squad.config.example.json squad.config.json    # then put your key in it (the file is gitignored)
+cp squad.config.example.json squad.config.json    # only if you use an API key: put it in this file (gitignored)
 ln -s "$PWD/.venv/bin/agentic" ~/.local/bin/agentic   # optional: lets you type `agentic` anywhere
 ```
 
@@ -45,7 +50,7 @@ The squad works on a copy of your folder, so nothing in your files changes until
 | `/autonomy manual\|semi\|full` | when you are asked: before each phase, before a commit, or never |
 | `/squad`, `/new`, `/help`, `/exit` | the roster, a fresh session, help, leave |
 
-A key is required because every agent is a model call; the terminal tells you where to put it. The `ANTHROPIC_API_KEY` environment variable also works and takes priority. `python -m squad start --web` opens the browser version of the same thing.
+Every agent is a model call, so a model is required: your Claude Code login, or an API key (`squad.config.json` or the `ANTHROPIC_API_KEY` environment variable). With a key the squad uses the API; without one it uses Claude Code. Set `"provider": "api"` or `"claude-code"` in `squad.config.json` (or `SQUAD_PROVIDER`) to force one. Through Claude Code each step is a separate `claude -p` run, so it is a few seconds slower per step and counts against your subscription's usage limits. `python -m squad start --web` opens the browser version of the same thing.
 
 `squad.config.json` can also list MCP servers under `mcpServers` (same shape as `.mcp.json`). They default to the bundled Jira, Confluence and workspace stand-ins; point a name at a real MCP server command to swap it. Relative commands are resolved from the config file's folder.
 
@@ -58,7 +63,7 @@ Limits to know: tests run with `pytest` using the squad's own Python, so a proje
 ```
 python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 .venv/bin/python -m squad run PAY-482 --autonomy full
-.venv/bin/python -m squad ask "What does this project do?"   # terminal version of the app (needs a key)
+.venv/bin/python -m squad ask "What does this project do?"   # terminal version of the app (needs a model: Claude Code login or API key)
 .venv/bin/python -m squad replay <path-to-trace.jsonl>
 .venv/bin/python -m squad eval   # full squad vs a solo FORGE + WARDEN baseline
 .venv/bin/python -m squad ui <path-to-trace.jsonl> --open   # game-style HTML replay

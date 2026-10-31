@@ -12,7 +12,7 @@ from starlette.responses import HTMLResponse, JSONResponse, StreamingResponse
 from starlette.routing import Route
 
 from .config import ConfigError, config_path
-from .llm import llm_from_config
+from .llm import llm_from_config, no_model_message
 from .paths import RUNS_DIR
 from .orchestrator import AUTONOMY_LEVELS, Match
 from .projects import Project, overview
@@ -107,7 +107,7 @@ def create_app(projects: dict[str, Project], llm_provider: Callable[[], object |
         except ConfigError as err:
             return JSONResponse({"error": str(err)}, status_code=400)
         if llm is None:
-            return JSONResponse({"error": f"No API key yet: add it to {config_path()} (see squad.config.example.json)."}, status_code=400)
+            return JSONResponse({"error": no_model_message()}, status_code=400)
         if any(not r.finished for r in runs.values()):
             return JSONResponse({"error": "a match is already running"}, status_code=409)
         run, run_id = RunState(), uuid.uuid4().hex[:8]
