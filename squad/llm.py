@@ -33,12 +33,9 @@ class AnthropicLLM:
         self._client = client or AsyncAnthropic(api_key=api_key)
 
     async def complete(self, *, agent, messages, tools, meta) -> LLMResponse:
+        extra = {"tools": tools} if tools else {}
         response = await self._client.messages.create(
-            model=agent.model,
-            max_tokens=MAX_OUTPUT_TOKENS,
-            system=agent.system,
-            messages=messages,
-            tools=tools,
+            model=agent.model, max_tokens=MAX_OUTPUT_TOKENS, system=agent.system, messages=messages, **extra
         )
         blocks: list[dict] = []
         for block in response.content:

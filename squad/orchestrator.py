@@ -14,7 +14,7 @@ from mcp import StdioServerParameters
 
 from .agents import ROSTER
 from .blackboard import Blackboard
-from .config import load_config
+from .config import config_path, load_config
 from .draft import Draft, Pick, draft
 from .llm import LLM
 from .mcp_host import MCPHost
@@ -33,8 +33,11 @@ def server_params(name: str, **env: str) -> StdioServerParameters:
     """The built-in stand-in server unless squad.config.json points this name at another MCP server."""
     custom = load_config().mcp_servers.get(name)
     if custom:
+        command = custom["command"]
+        if "/" in command and not Path(command).is_absolute():
+            command = str(config_path().parent / command)  # relative to the config file, not to where you ran `squad`
         return StdioServerParameters(
-            command=custom["command"], args=list(custom.get("args", [])),
+            command=command, args=list(custom.get("args", [])),
             env={**os.environ, **custom.get("env", {}), **env},
         )
     return StdioServerParameters(command=sys.executable, args=["-m", f"squad.servers.{name}"], env={**os.environ, **env})
@@ -47,6 +50,7 @@ class Match:
         self, ticket_id: str, *, llm: LLM, autonomy: str = "semi", approve: Approver | None = None,
         runs_dir: Path = RUNS_DIR, max_retries: int = 2, listeners=(),
         ticket: Ticket | None = None, project: Path | None = None, squad_draft: Draft | None = None,
+        workspace: Path | None = None,
     ) -> None:
         if autonomy not in AUTONOMY_LEVELS:
             raise ValueError(f"autonomy must be one of {AUTONOMY_LEVELS}")
@@ -55,6 +59,7 @@ class Match:
         self.listeners = list(listeners)
         # An ad-hoc ticket, a project folder to work on, and a ready-made squad all skip the lookup/draft defaults.
         self.ticket, self.project, self.squad_draft = ticket, project, squad_draft
+        self.workspace = workspace  # a session's long-lived working copy: created on first use, reused after
         self.answer = ""
         self.runs: list[AgentRun] = []
 
@@ -90,10 +95,10 @@ class Match:
             ticket = Ticket.from_dict(json.loads(await host.call("jira__get_ticket", {"ticket_id": self.ticket_id})))
             run_dir = self._new_run_dir(ticket.id)
 
-        workspace_dir = run_dir / "workspace"
-        source = self.project or SANDBOX_DIR / ticket.sandbox
-        copy_project(source, workspace_dir)
-        Workspace(workspace_dir).init_repo()
+        workspace_dir = self.workspace or run_dir / "workspace"
+        if not workspace_dir.exists():
+            copy_project(self.project or SANDBOX_DIR / ticket.sandbox, workspace_dir)
+            Workspace(workspace_dir).init_repo()
         await host.connect("workspace", server_params("workspace", SQUAD_WORKSPACE=str(workspace_dir)))
 
         trace = Trace(run_dir / "trace.jsonl")

@@ -85,11 +85,12 @@ Phase 1 is built and merged. A match runs end to end over real MCP servers:
 - Retry loop with Sentinel gates, autonomy levels (manual, semi, full) and an approval gate before the commit.
 - Every match writes a JSONL trace, replayed in the terminal or as a standalone game-style HTML page (`squad ui`).
 - `squad eval` compares the squad with a solo FORGE + WARDEN baseline and audits both outputs the same way. On the payments ticket the solo run ships a refund with no authorization check; the squad does not.
+- `squad` opens an interactive terminal: a dispatcher sizes the squad per message (chat, one agent, or the full squad), the session remembers earlier turns, and `/diff` and `/apply` bring the squad's changes back to your real folder. A browser app is available with `--web`.
 - CI runs the test suite on every PR.
 
 Not done yet, stated plainly:
 
-- All results so far use the scripted model (real tools, canned decisions). It proves the machinery, not model quality. The Anthropic-backed path is written but has not run live.
+- The eval numbers come from the scripted model (real tools, canned decisions), so they prove the machinery, not model quality. The Anthropic-backed path has run live on two requests (a question answered by RADAR alone; a bug fix by FORGE + WARDEN, about 9k tokens), but there is no live eval yet.
 - The security scanner is a heuristic tripwire, not a SAST tool.
 - Figma and Slack MCP servers, cost tracking against a budget, and multi-repo support are still Phase 2.
 

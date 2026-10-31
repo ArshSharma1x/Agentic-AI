@@ -41,3 +41,11 @@ def test_security_scan_flags_unchecked_money_function_and_secrets(ws):
 def test_security_scan_passes_when_authorization_is_checked(ws):
     ws.write_file("pay.py", "def refund(user, owner):\n    if user != owner:\n        raise PermissionError\n")
     assert ws.security_scan()["passed"]
+
+
+def test_run_tests_does_not_run_pytest_when_the_project_has_no_python_tests(tmp_path):
+    from squad.workspace import Workspace
+
+    (tmp_path / "Calc.java").write_text("class Calc {}\n")
+    result = Workspace(tmp_path).run_tests()
+    assert result["passed"] and "nothing was run" in result["output"]

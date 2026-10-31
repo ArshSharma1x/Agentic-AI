@@ -42,7 +42,9 @@ class Workspace:
         return done.stdout
 
     def init_repo(self) -> None:
-        (self.root / ".gitignore").write_text("__pycache__/\n.pytest_cache/\n")
+        ignore = self.root / ".gitignore"
+        existing = ignore.read_text() if ignore.exists() else ""
+        ignore.write_text(existing + ("" if existing.endswith("\n") or not existing else "\n") + "__pycache__/\n.pytest_cache/\n")
         self._git("init", "-q")
         self._git("add", "-A")
         self._git("commit", "-q", "-m", "baseline")
@@ -71,7 +73,15 @@ class Workspace:
         target.write_text(content)
         return f"wrote {len(content)} chars to {path}"
 
+    def has_python_tests(self) -> bool:
+        return any(
+            p.suffix == ".py" and (p.name.startswith("test_") or p.name.endswith("_test.py"))
+            for p in self.root.rglob("*.py") if not SKIP_DIRS & set(p.relative_to(self.root).parts)
+        )
+
     def run_tests(self, timeout: int = 60) -> dict:
+        if not self.has_python_tests():
+            return {"passed": True, "exit_code": None, "output": "no pytest tests in this project, so nothing was run (only pytest is supported)"}
         try:
             done = subprocess.run(
                 [sys.executable, "-m", "pytest", "-q", "--no-header", "-p", "no:cacheprovider"],
@@ -85,6 +95,25 @@ class Workspace:
     def git_diff(self) -> str:
         self._git("add", "-A")
         return self._git("diff", "--cached") or "(no changes)"
+
+    def baseline(self) -> str:
+        return self._git("rev-list", "--max-parents=0", "HEAD").split()[0]
+
+    def changes(self) -> list[tuple[str, str]]:
+        """(status, path) for everything that differs from the baseline: A added, M modified, D deleted."""
+        self._git("add", "-A")
+        rows = self._git("diff", "--cached", "--name-status", self.baseline()).splitlines()
+        return [(row.split("\t")[0][0], row.split("\t")[-1]) for row in rows if row.strip()]
+
+    def baseline_diff(self) -> str:
+        self._git("add", "-A")
+        return self._git("diff", "--cached", self.baseline()) or "(no changes)"
+
+    def baseline_file(self, path: str) -> str | None:
+        try:
+            return self._git("show", f"{self.baseline()}:{path}")
+        except WorkspaceError:
+            return None
 
     def git_commit(self, message: str) -> str:
         self._git("add", "-A")

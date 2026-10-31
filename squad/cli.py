@@ -9,6 +9,7 @@ from .llm import AnthropicLLM, llm_from_config
 from .mcp_host import ToolCallError
 from .config import ConfigError, config_path, load_config
 from .projects import discover, overview
+from .repl import Session, ask_yes_no as _ask, run_repl
 from .triage import triage_with_model
 from .orchestrator import AUTONOMY_LEVELS, Match
 from .render import render
@@ -21,14 +22,6 @@ def _print_event(event: dict) -> None:
     line = render(event)
     if line:
         print(line, flush=True)
-
-
-async def _ask(question: str) -> bool:
-    if not sys.stdin.isatty():
-        print(f"(no terminal to ask: {question} -> no)")
-        return False
-    answer = await asyncio.to_thread(input, f"\n? {question} [y/N] ")
-    return answer.strip().lower() in ("y", "yes")
 
 
 def _pick_llm(choice: str):
@@ -91,6 +84,22 @@ def _ask_cmd(args) -> int:
 
 
 def _start(args) -> int:
+    projects = discover([Path(p) for p in args.project], cwd=Path.cwd(), demo=args.demo)
+    if args.web:
+        return _web(args, projects)
+    name = args.on or next(iter(projects))
+    if name not in projects:
+        sys.exit(f"unknown project {name!r}; choose one of: {', '.join(projects)}")
+    try:
+        llm = llm_from_config()
+    except ConfigError as err:
+        sys.exit(str(err))
+    if llm is None:
+        sys.exit(f"No API key yet: copy squad.config.example.json to {config_path()} and add your key.")
+    return run_repl(Session(projects[name], llm, autonomy=args.autonomy))
+
+
+def _web(args, projects) -> int:
     import threading
     import webbrowser
 
@@ -98,7 +107,6 @@ def _start(args) -> int:
 
     from .server import create_app
 
-    projects = discover([Path(p) for p in args.project], cwd=Path.cwd(), demo=args.demo)
     url = f"http://127.0.0.1:{args.port}"
     try:
         status = "model connected" if load_config().api_key else f"no API key yet: add it to {config_path()}"
@@ -131,7 +139,7 @@ def _eval(args) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="squad", description="Run a squad of agents on a ticket.")
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command")
 
     run = sub.add_parser("run", help="dev tool: play a match on a bundled demo ticket (scripted model by default)")
     run.add_argument("ticket", help="ticket id, e.g. PAY-482")
@@ -144,11 +152,14 @@ def main(argv: list[str] | None = None) -> int:
     replay.add_argument("trace", help="path to a trace.jsonl file")
     replay.set_defaults(handler=_replay)
 
-    start = sub.add_parser("start", help="open the squad app in your browser: type a problem, watch the squad work")
-    start.add_argument("--port", type=int, default=8765)
+    start = sub.add_parser("start", help="open the squad terminal: type a request, the right agents deploy (default command)")
+    start.add_argument("--on", help="project to work on (default: the folder you are in)")
+    start.add_argument("--autonomy", choices=AUTONOMY_LEVELS, default="semi")
+    start.add_argument("--web", action="store_true", help="use the browser app instead of the terminal")
+    start.add_argument("--port", type=int, default=8765, help="port for --web")
     start.add_argument("--project", action="append", default=[], help="add your own project folder (copied, never edited in place)")
     start.add_argument("--demo", action="store_true", help="also offer the bundled demo projects")
-    start.add_argument("--no-open", action="store_true", help="do not open the browser")
+    start.add_argument("--no-open", action="store_true", help="with --web: do not open the browser")
     start.set_defaults(handler=_start)
 
     ask = sub.add_parser("ask", help="give the squad a problem in plain words; it sizes the squad itself")
@@ -171,4 +182,6 @@ def main(argv: list[str] | None = None) -> int:
     ev.set_defaults(handler=_eval)
 
     args = parser.parse_args(argv)
+    if args.command is None:  # bare `squad` opens the terminal
+        args = parser.parse_args(["start"])
     return args.handler(args)

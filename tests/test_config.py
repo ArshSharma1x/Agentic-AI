@@ -46,3 +46,14 @@ def test_the_committed_example_is_valid_and_has_no_usable_key(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     config = load_config(ROOT / "squad.config.example.json")
     assert config.api_key is None and set(config.mcp_servers) == {"jira", "confluence", "workspace"}
+
+
+def test_relative_server_commands_resolve_against_the_config_file(tmp_path, monkeypatch):
+    from squad.orchestrator import server_params
+
+    cfg = tmp_path / "squad.config.json"
+    cfg.write_text('{"mcpServers": {"jira": {"command": ".venv/bin/python", "args": ["-m", "x"]}, "workspace": {"command": "python3"}}}')
+    monkeypatch.setenv("SQUAD_CONFIG", str(cfg))
+    monkeypatch.chdir(tmp_path.parent)
+    assert server_params("jira").command == str(tmp_path / ".venv/bin/python")
+    assert server_params("workspace").command == "python3"  # a bare command still comes from PATH
