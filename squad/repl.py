@@ -55,8 +55,22 @@ class Session:
         self._new_workspace()
 
     def _new_workspace(self) -> None:
+        """A fresh working copy of the project. `source` is what gets copied; `target` is where /apply writes."""
         self.workspace = self.runs_dir / f"{time.strftime('%Y%m%d-%H%M%S')}-session" / "workspace"
+        self.source = self.target = self.project.path
         self.turns.clear()
+
+    def _start_new_project(self, destination: str) -> bool:
+        """A request for a new folder elsewhere gets an empty workspace, not a copy of the current project."""
+        dest = Path(destination).expanduser()
+        home = Path.home().resolve()
+        if not dest.is_absolute() or home not in (dest.resolve(), *dest.resolve().parents) or dest.resolve() == home:
+            self.out(f"\nI only create new folders inside your home directory ({home}); {destination} is not.")
+            return False
+        base = self.runs_dir / f"{time.strftime('%Y%m%d-%H%M%S')}-new"
+        (base / "empty").mkdir(parents=True)
+        self.workspace, self.source, self.target = base / "workspace", base / "empty", dest
+        return True
 
     def banner(self) -> str:
         try:
@@ -98,16 +112,25 @@ class Session:
             self.turns.append((text, answer[:200]))
             return
         ticket = plan.ticket
+        if plan.destination:
+            if not self._start_new_project(plan.destination):
+                return
+            ticket = dataclasses.replace(ticket, description=(
+                f"{ticket.description}\n\nThis is a new project. The workspace root IS the new folder (it will be copied to "
+                f"{plan.destination}), so put files directly in the root, not in a subfolder named after the project. "
+                "Do not use absolute paths."))
         if self.turns:
             ticket = dataclasses.replace(ticket, description=f"{ticket.description}\n\nContext from earlier in this session:\n{self._context()}")
         match = Match(
             ticket.id, llm=self.llm, autonomy=self.autonomy, approve=self.ask, runs_dir=self.runs_dir,
             listeners=[lambda e: (line := render(e)) and self.out(line)],
-            ticket=ticket, project=self.project.path, squad_draft=plan.draft, workspace=self.workspace,
+            ticket=ticket, project=self.source, squad_draft=plan.draft, workspace=self.workspace,
         )
         result = await match.run()
         self.tokens += result.stats["input_tokens"] + result.stats["output_tokens"]
         self.turns.append((text, f"{result.reason}. {result.answer}"[:240]))
+        if plan.destination:
+            self.out(f"{DIM}New project is in the sandbox. Type /apply to create {self.target}{RESET}")
 
     async def _command(self, line: str) -> bool:
         name, _, arg = line[1:].partition(" ")
@@ -141,7 +164,7 @@ class Session:
     async def _apply(self) -> None:
         if not self.workspace.exists():
             return self.out("nothing to apply yet")
-        ws, source = Workspace(self.workspace), self.project.path
+        ws, source = Workspace(self.workspace), self.target
         todo, skipped = [], []
         for status, rel in ws.changes():
             target = source / rel

@@ -73,7 +73,15 @@ class Workspace:
         target.write_text(content)
         return f"wrote {len(content)} chars to {path}"
 
+    def has_python_tests(self) -> bool:
+        return any(
+            p.suffix == ".py" and (p.name.startswith("test_") or p.name.endswith("_test.py"))
+            for p in self.root.rglob("*.py") if not SKIP_DIRS & set(p.relative_to(self.root).parts)
+        )
+
     def run_tests(self, timeout: int = 60) -> dict:
+        if not self.has_python_tests():
+            return {"passed": True, "exit_code": None, "output": "no pytest tests in this project, so nothing was run (only pytest is supported)"}
         try:
             done = subprocess.run(
                 [sys.executable, "-m", "pytest", "-q", "--no-header", "-p", "no:cacheprovider"],

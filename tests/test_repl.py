@@ -96,3 +96,45 @@ def test_changes_stay_in_the_copy_until_applied(tmp_path):
     assert (source / "app.py").read_text() == "x = 2\n" and (source / "new.py").exists()
     assert (source / "keep.py").read_text() == "k = 99\n"  # not overwritten
     assert "skipped keep.py" in "\n".join(lines)
+
+
+def test_a_new_folder_request_gets_an_empty_workspace_and_applies_to_the_destination(tmp_path, monkeypatch):
+    from squad.triage import Triage, triage
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    dest = tmp_path / "Calc"
+    lines = []
+
+    async def yes(question):
+        return True
+
+    async def fake_triage(text, project, llm, **kw):
+        plan = triage(text, project)
+        return Triage(plan.kind, plan.draft, plan.ticket, str(dest))
+
+    monkeypatch.setattr("squad.repl.triage_with_model", fake_triage)
+    project = discover(demo=True)["refunds_api"]
+    s = Session(project, FrontDesk(), autonomy="full", runs_dir=tmp_path / "runs", out=lines.append, ask=yes)
+    asyncio.run(s.handle("What is in here?"))
+    files = {p.name for p in s.workspace.iterdir()}
+    assert "refunds.py" not in files and "tests" not in files  # not a copy of the current project
+    (s.workspace / "Calc.java").write_text("class Calc {}\n")
+    asyncio.run(s.handle("/apply"))
+    assert (dest / "Calc.java").read_text() == "class Calc {}\n"
+
+
+def test_new_folders_outside_home_are_refused(tmp_path, monkeypatch):
+    from squad.triage import Triage, triage
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    (tmp_path / "home").mkdir()
+    lines = []
+
+    async def fake_triage(text, project, llm, **kw):
+        plan = triage(text, project)
+        return Triage(plan.kind, plan.draft, plan.ticket, "/etc/evil")
+
+    monkeypatch.setattr("squad.repl.triage_with_model", fake_triage)
+    s = Session(discover(demo=True)["refunds_api"], FrontDesk(), runs_dir=tmp_path / "runs", out=lines.append)
+    asyncio.run(s.handle("make a folder"))
+    assert any("only create new folders inside your home" in l for l in lines)

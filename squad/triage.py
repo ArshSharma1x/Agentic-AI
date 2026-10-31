@@ -33,6 +33,7 @@ class Triage:
     kind: str  # question, plan, review, test or change
     draft: Draft
     ticket: Ticket
+    destination: str = ""  # a new folder the user asked for, outside the current project
 
 
 def _picks(*pairs: tuple[str, str]) -> Draft:
@@ -118,6 +119,11 @@ TRIAGE_TOOL = {
                 },
                 "description": "The smallest squad that can do the job well.",
             },
+            "destination": {
+                "type": "string",
+                "description": "Only when the user asks for a NEW folder or project at a specific location: that absolute or ~ path, "
+                "including the new folder's name. Empty when the work is on the current project.",
+            },
         },
         "required": ["kind", "agents"],
     },
@@ -180,4 +186,5 @@ async def triage_with_model(
     sensitive = SENSITIVE_LABELS & set(ticket.labels)
     if "FORGE" in chosen and sensitive and "AEGIS" not in chosen:
         chosen["AEGIS"] = f"rule: the request touches {', '.join(sorted(sensitive))}, so it gets a security gate"
-    return Triage(kind, _picks(*[(a, chosen[a]) for a in ORDER if a in chosen]), ticket)
+    destination = str(call["input"].get("destination") or "").strip() if allow_chat else ""
+    return Triage(kind, _picks(*[(a, chosen[a]) for a in ORDER if a in chosen]), ticket, destination)
