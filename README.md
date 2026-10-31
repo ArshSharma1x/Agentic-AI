@@ -24,6 +24,8 @@ cd /path/to/your/project
 /path/to/Agentic-AI/.venv/bin/python -m squad
 ```
 
+To type just `agentic` from any folder, install once with `.venv/bin/pip install -e .` and link it onto your PATH: `ln -s /path/to/Agentic-AI/.venv/bin/agentic ~/.local/bin/agentic`.
+
 This opens the squad terminal. Type what you need, the way you would in any coding assistant. A dispatcher reads each message and sends in only the agents the job needs: a greeting gets a plain reply, a question gets RADAR, a security audit gets AEGIS, a code change gets FORGE with a QA gate (plus a security gate for payments, auth or PII). The session remembers earlier turns, so follow-ups like "now add a test for that" work.
 
 The squad works on a copy of your folder, so nothing in your files changes until you say so:
