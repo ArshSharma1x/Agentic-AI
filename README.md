@@ -2,7 +2,7 @@
 
 A squad of AI agents that verifies code changes with evidence a skeptic would accept. The author agent writes; a deterministic gate and an independent reviewer decide. Why and where it is going: [vision.md](vision.md).
 
-> **Status, stated plainly:** an audit in November 2026 found that the gates trusted the model's own verdict and that model-written code ran without real isolation. Those fixes are in progress (see vision.md). Until they land, treat this as a prototype and run it only on code you trust.
+> **Status, stated plainly:** an audit in November 2026 found that the old gates trusted the model's own verdict and that model-written code ran without isolation. Both are fixed (deterministic gate, OS sandbox), with an adversarial test for every finding. Pluggable author agents, signed evidence and a live eval are next (see vision.md).
 
 ## How it works
 
@@ -15,7 +15,9 @@ The author agent (FORGE) makes the change in a copy of your project. Then **WARD
 | Original tests | Runs the tests **as they were before the change** (tampered files are put back first) and compares each test with the baseline: only failures the change introduced count; all-skipped, vanished or early-exit runs fail |
 | Hidden tests | Optional tests the author never sees. Failures are reported by count only, so the author cannot fit to them |
 
-The verdict is **PASS**, **FAIL**, or **UNVERIFIED** (for example, the project has no tests). Nothing is committed on UNVERIFIED unless you accept it. AEGIS, an independent model reviewer, can add findings on top, but no model can turn a red gate green. Model-written code runs with an allow-listed environment (no API keys, tokens or SSH agent) and git runs with hooks and `fsmonitor` disabled. Each one of these defences has an adversarial test in `tests/test_gate.py`.
+The verdict is **PASS**, **FAIL**, or **UNVERIFIED** (for example, the project has no tests). Nothing is committed on UNVERIFIED unless you accept it. AEGIS, an independent model reviewer, can add findings on top, but no model can turn a red gate green. Model-written code runs in an OS sandbox (Seatbelt on macOS, bubblewrap on Linux): no network, no reading your home directory, no writing outside the working copy, and an allow-listed environment with no API keys, tokens or SSH agent. Git runs with hooks and `fsmonitor` disabled. Where no sandbox is available the evidence says `sandbox: none` rather than pretending. Each defence has an adversarial test (`tests/test_gate.py`, `tests/test_sandbox.py`), and CI runs them against the real Linux sandbox.
+
+Least privilege by construction: RADAR reads untrusted tickets and docs but can write nothing and reach nothing; its notes reach FORGE marked as untrusted data, never as instructions. FORGE can write code, but the code it runs has no network and no secrets. No role holds untrusted input, secrets and a way out at the same time (the "lethal trifecta" behind the 2026 CI-secret thefts).
 
 The dispatcher sizes the squad per request (a question gets RADAR alone; a change gets FORGE, the gate, and AEGIS when payments, auth or PII are involved), and every pick is logged with its reason. Each run writes a `trace.jsonl`.
 
@@ -44,7 +46,7 @@ agentic          # or: /path/to/Agentic-AI/.venv/bin/python -m squad
 
 This opens the squad terminal. Type what you need, the way you would in any coding assistant. A dispatcher reads each message and sends in only the agents the job needs: a greeting gets a plain reply, a question gets RADAR, a security audit gets AEGIS, a code change gets FORGE with a QA gate (plus a security gate for payments, auth or PII). The session remembers earlier turns, so follow-ups like "now add a test for that" work.
 
-The squad works on a copy of your folder and only `/apply` writes back to it. Tests run without your secrets in their environment, but are not yet network-isolated (fix in progress).
+The squad works on a copy of your folder and only `/apply` writes back to it. Code the squad runs is sandboxed (see How it works).
 
 | Command | Does |
 |---|---|

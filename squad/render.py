@@ -45,7 +45,7 @@ def render(event: dict) -> str | None:
         return f"{t} {_who(event['agent'])} verdict {label}{issues}"
     if kind == "gate":
         color = VERDICT_COLORS[event["verdict"]]
-        lines = [f"{t} {_who('WARDEN')} gate {color}{event['verdict']}{RESET}"]
+        lines = [f"{t} {_who('WARDEN')} gate {color}{event['verdict']}{RESET} {DIM}(sandbox: {event.get('isolation', 'none')}){RESET}"]
         for check in event["checks"]:
             mark = {"PASS": f"{GREEN}ok{RESET}", "FAIL": f"{RED}!!{RESET}", "UNVERIFIED": f"{YELLOW}??{RESET}"}[check["status"]]
             lines.append(f"{'':<17}{mark} {check['name']}: {DIM}{_short(check['detail'], 110)}{RESET}")

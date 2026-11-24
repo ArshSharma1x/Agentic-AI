@@ -8,7 +8,7 @@ LOCAL_TOOLS: dict[str, dict] = {
             "type": "object",
             "properties": {
                 "summary": {"type": "string", "description": "What the work is and why, in a few sentences."},
-                "key_facts": {"type": "array", "items": {"type": "string"}, "description": "Rules, constraints and facts the implementer must respect."},
+                "key_facts": {"type": "array", "items": {"type": "string"}, "description": "Facts the implementer needs, each with its source (ticket, doc id or file:line)."},
             },
             "required": ["summary", "key_facts"],
         },

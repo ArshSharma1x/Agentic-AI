@@ -13,5 +13,9 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install -e '.[dev]'
+      - name: Install the Linux sandbox (bubblewrap)
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - run: git config --global user.email ci@example.com && git config --global user.name ci
       - run: pytest -q

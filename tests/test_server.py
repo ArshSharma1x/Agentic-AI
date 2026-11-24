@@ -83,3 +83,11 @@ def test_an_approval_request_pauses_the_match_until_the_browser_answers():
         return await waiting
 
     assert asyncio.run(scenario()) is True
+
+
+def test_requests_for_other_hostnames_are_refused(tmp_path):
+    from starlette.testclient import TestClient
+
+    client = TestClient(create_app(discover(demo=True), lambda: None, runs_dir=tmp_path), base_url="http://evil.example")
+    assert client.get("/api/config").status_code == 400
+    assert TestClient(create_app(discover(demo=True), lambda: None, runs_dir=tmp_path), base_url="http://127.0.0.1").get("/api/config").status_code == 200

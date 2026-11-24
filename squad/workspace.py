@@ -103,7 +103,7 @@ class Workspace:
 
         if not self.has_python_tests():
             return {"passed": None, "exit_code": None, "output": "no pytest tests in this project, so nothing was run. The gate will report this change as UNVERIFIED unless you add tests in new files."}
-        result = sandbox.run([sys.executable, "-m", "pytest", "-q", "--no-header", "-p", "no:cacheprovider"], self.root, timeout=timeout)
+        result = sandbox.run(sandbox.pytest_command(self.root, "-q", "--no-header"), self.root, timeout=timeout)
         return {"passed": result.exit_code == 0, "exit_code": result.exit_code, "output": result.output.strip()[-4000:]}
 
     def git_diff(self) -> str:

@@ -88,6 +88,7 @@ class Check:
 @dataclass
 class GateReport:
     checks: list[Check]
+    isolation: str = field(default_factory=sandbox.isolation)  # how the author's code was contained while it ran
 
     @property
     def verdict(self) -> str:
@@ -104,7 +105,7 @@ class GateReport:
         return [f"{c.name}: {c.detail}" for c in self.checks if c.status == UNVERIFIED]
 
     def to_dict(self) -> dict:
-        return {"verdict": self.verdict, "checks": [asdict(c) for c in self.checks]}
+        return {"verdict": self.verdict, "isolation": self.isolation, "checks": [asdict(c) for c in self.checks]}
 
 
 @dataclass(frozen=True)
@@ -189,7 +190,7 @@ class Gate:
             if shutil.which("javac"):
                 checked += len(java)
                 with tempfile.TemporaryDirectory() as out:
-                    result = sandbox.run(["javac", "-d", out, *java], self.ws.root, timeout=120)
+                    result = sandbox.run(["javac", "-d", out, *java], self.ws.root, timeout=120, writable=(Path(out),))
                 if result.exit_code != 0:
                     errors.append(f"javac: {result.output.strip()[:300]}")
             else:
@@ -248,7 +249,7 @@ class Gate:
 
     def _pytest(self, root: Path) -> TestRun:
         report = root / ".squad-junit.xml"
-        cmd = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", f"--junitxml={report}", "-o", "junit_family=xunit2"]
+        cmd = sandbox.pytest_command(root, "-q", f"--junitxml={report}", "-o", "junit_family=xunit2")
         result = sandbox.run(cmd, root, timeout=self.timeout)
         if not report.is_file():
             return TestRun({}, result.exit_code, result.output[-3000:], reported=False)

@@ -7,6 +7,8 @@ from collections.abc import Callable
 from pathlib import Path
 
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, StreamingResponse
 from starlette.routing import Route
@@ -143,7 +145,8 @@ def create_app(projects: dict[str, Project], llm_provider: Callable[[], object |
         run.pending.set_result(bool((await request.json()).get("approved")))
         return JSONResponse({"ok": True})
 
-    return Starlette(routes=[
+    # Only answer to localhost names: a DNS-rebinding page on another domain sends its own Host header and is refused.
+    return Starlette(middleware=[Middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])], routes=[
         Route("/", page), Route("/api/config", config),
         Route("/api/runs", start, methods=["POST"]),
         Route("/api/runs/{run_id}/events", events), Route("/api/runs/{run_id}/approve", approve, methods=["POST"]),
