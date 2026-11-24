@@ -53,10 +53,11 @@ class Workspace:
             raise WorkspaceError(done.stderr.decode(errors="replace").strip() or f"git {args[0]} failed")
         return done.stdout
 
-    def init_repo(self) -> None:
-        ignore = self.root / ".gitignore"
-        existing = ignore.read_text() if ignore.exists() else ""
-        ignore.write_text(existing + ("" if existing.endswith("\n") or not existing else "\n") + "__pycache__/\n.pytest_cache/\n")
+    def init_repo(self, ignore_caches: bool = True) -> None:
+        if ignore_caches:
+            ignore = self.root / ".gitignore"
+            existing = ignore.read_text() if ignore.exists() else ""
+            ignore.write_text(existing + ("" if existing.endswith("\n") or not existing else "\n") + "__pycache__/\n.pytest_cache/\n")
         self._git("init", "-q")
         self._git("add", "-A")
         self._git("commit", "-q", "-m", "baseline")

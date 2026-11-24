@@ -20,6 +20,7 @@ import sys
 import tempfile
 import tomllib
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -120,10 +121,11 @@ class TestRun:
 
 
 class Gate:
-    def __init__(self, workspace: Path, *, hidden_tests: Path | None = None, timeout: int = 180) -> None:
+    def __init__(self, workspace: Path, *, hidden_tests: Path | None = None, timeout: int = 180, network: str = "none") -> None:
         self.ws = Workspace(workspace)
         self.hidden_tests = hidden_tests
         self.timeout = timeout
+        self.network = network
         self._baseline_run: TestRun | None = None
 
     def run(self) -> GateReport:
@@ -211,8 +213,11 @@ class Gate:
             return [Check("tests", UNVERIFIED, "the project has no tests, so nothing proves this change works")]
         with tempfile.TemporaryDirectory(prefix="squad-gate-") as scratch:
             scratch = Path(scratch)
-            baseline = self._baseline(scratch / "baseline") if any(is_test_file(f) for f in baseline_files) else None
-            now = self._pytest(self._pristine(scratch / "pristine", changes))
+            pristine = self._pristine(scratch / "pristine", changes)
+            with ThreadPoolExecutor(2) as pool:  # the two runs are independent
+                before = pool.submit(self._baseline, scratch / "baseline") if any(is_test_file(f) for f in baseline_files) else None
+                now = self._pytest(pristine)
+                baseline = before.result() if before else None
             hashes = {f: _sha256(scratch / "pristine" / f) for f in sorted(visible) if (scratch / "pristine" / f).is_file()}
         checks = [self._judge(now, baseline, hashes)]
         if hidden:
@@ -250,7 +255,7 @@ class Gate:
     def _pytest(self, root: Path) -> TestRun:
         report = root / ".squad-junit.xml"
         cmd = sandbox.pytest_command(root, "-q", f"--junitxml={report}", "-o", "junit_family=xunit2")
-        result = sandbox.run(cmd, root, timeout=self.timeout)
+        result = sandbox.run(cmd, root, timeout=self.timeout, network=self.network)
         if not report.is_file():
             return TestRun({}, result.exit_code, result.output[-3000:], reported=False)
         outcomes: dict[str, str] = {}
@@ -266,6 +271,9 @@ class Gate:
 
     def _judge(self, now: TestRun, baseline: TestRun | None, hashes: dict) -> Check:
         data = {"exit_code": now.exit_code, "test_files_sha256": hashes, "output_tail": now.output[-1500:]}
+        if not now.reported and baseline is not None and not baseline.reported:
+            return Check("tests", UNVERIFIED, "the test suite does not complete in the sandbox even before the change "
+                         f"(exit code {now.exit_code}); it may need network or services the sandbox blocks", data)
         if not now.reported:
             return Check("tests", FAIL, f"the test run produced no report (exit code {now.exit_code}); it crashed, timed out or exited early", data)
         ran = self._visible(now.ids("passed", "failed", "error"))

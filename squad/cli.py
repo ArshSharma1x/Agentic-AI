@@ -132,6 +132,27 @@ def _ui(args) -> int:
     return 0
 
 
+def _verify(args) -> int:
+    import json
+
+    from .gate import FAIL, PASS
+    from .verify import VerifyError, verify
+
+    try:
+        result = verify(Path(args.repo), base=args.base, head=args.head, hidden=Path(args.hidden) if args.hidden else None,
+                        network="loopback" if args.loopback else "none")
+    except VerifyError as err:
+        print(f"agentic verify: {err}", file=sys.stderr)
+        return 3
+    report = result.report
+    if args.json:
+        Path(args.json).write_text(json.dumps(result.to_dict(), indent=2))
+    if not args.quiet:
+        print(f"Verifying {result.head_label} against {result.base_label} ({result.base[:10]}), {len(result.changes)} file(s) changed")
+        print(render({"type": "gate", "t": 0.0, "agent": "WARDEN", **report.to_dict()}))
+    return {PASS: 0, FAIL: 1}.get(report.verdict, 2)
+
+
 def _eval(args) -> int:
     rows = asyncio.run(run_eval(args.tickets, llm_factory=lambda: _pick_llm(args.llm)))
     print(format_report(rows))
@@ -170,6 +191,16 @@ def main(argv: list[str] | None = None) -> int:
     ask.add_argument("--demo", action="store_true", help="also offer the bundled demo projects")
     ask.add_argument("--autonomy", choices=AUTONOMY_LEVELS, default="semi")
     ask.set_defaults(handler=_ask_cmd)
+
+    ver = sub.add_parser("verify", help="gate a change made by any agent: original tests, tamper checks, sandboxed; exit 0 PASS, 1 FAIL, 2 UNVERIFIED")
+    ver.add_argument("--base", help="commit to compare against (default: HEAD if you have uncommitted changes, else where the branch left main)")
+    ver.add_argument("--head", help="commit to verify instead of the working tree")
+    ver.add_argument("--hidden", help="folder of hidden tests the author never saw")
+    ver.add_argument("--json", help="write the full report to this file")
+    ver.add_argument("--loopback", action="store_true", help="let tests use localhost (never the internet); for suites that start local servers")
+    ver.add_argument("--repo", default=".", help="repository to verify (default: current folder)")
+    ver.add_argument("-q", "--quiet", action="store_true")
+    ver.set_defaults(handler=_verify)
 
     ui = sub.add_parser("ui", help="write a standalone HTML replay of a trace")
     ui.add_argument("trace", help="path to a trace.jsonl file")

@@ -51,7 +51,11 @@ def _quote(path: Path) -> str:
     return '"' + str(path).replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def _seatbelt_profile(writable: list[Path]) -> str:
+NETWORK_MODES = ("none", "loopback")  # loopback: localhost only (test servers), never the outside world
+LOOPBACK = '(allow network-bind network-inbound (local ip "localhost:*"))\n(allow network-outbound (remote ip "localhost:*"))'
+
+
+def _seatbelt_profile(writable: list[Path], network: str = "none") -> str:
     home = Path.home().resolve()
     reads = "\n".join(f"  (subpath {_quote(p)})" for p in [*_readable_roots(), *writable])
     writes = "\n".join(f"  (subpath {_quote(p)})" for p in writable)
@@ -59,6 +63,7 @@ def _seatbelt_profile(writable: list[Path]) -> str:
 (allow default)
 (deny network*)
 (allow network* (local unix))
+{LOOPBACK if network == "loopback" else ""}
 (deny file-read* (subpath {_quote(home)}))
 (allow file-read-metadata)
 (allow file-read*
@@ -74,7 +79,9 @@ def _seatbelt_profile(writable: list[Path]) -> str:
 def isolation() -> str:
     """The strongest isolation this machine supports: seatbelt, bubblewrap, or none."""
     if sys.platform == "darwin" and shutil.which("sandbox-exec"):
-        return "seatbelt"
+        # Probe it: sandbox-exec cannot run inside another sandbox, e.g. when the gate checks its own test suite.
+        probe = subprocess.run(["sandbox-exec", "-p", "(version 1)(allow default)", "true"], capture_output=True, timeout=10)
+        return "seatbelt" if probe.returncode == 0 else "none"
     if sys.platform.startswith("linux") and shutil.which("bwrap"):
         probe = subprocess.run(
             ["bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "--unshare-net", "--", "true"], capture_output=True, timeout=10
@@ -84,10 +91,10 @@ def isolation() -> str:
     return "none"
 
 
-def _wrap(cmd: list[str], writable: list[Path]) -> list[str]:
+def _wrap(cmd: list[str], writable: list[Path], network: str) -> list[str]:
     kind = isolation()
     if kind == "seatbelt":
-        return ["sandbox-exec", "-p", _seatbelt_profile(writable), *cmd]
+        return ["sandbox-exec", "-p", _seatbelt_profile(writable, network), *cmd]
     if kind == "bubblewrap":
         args = ["bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp"]
         for hidden in ("/home", "/root", "/Users"):
@@ -97,18 +104,21 @@ def _wrap(cmd: list[str], writable: list[Path]) -> list[str]:
             args += ["--ro-bind", str(root), str(root)]
         for path in writable:
             args += ["--bind", str(path), str(path)]
+        # A private network namespace has its own loopback, so "loopback" needs nothing extra here.
         return [*args, "--unshare-net", "--unshare-pid", "--die-with-parent", "--new-session", "--", *cmd]
     return cmd
 
 
-def run(cmd: list[str], cwd: Path, timeout: int = 120, writable: tuple[Path, ...] = ()) -> Result:
+def run(cmd: list[str], cwd: Path, timeout: int = 120, writable: tuple[Path, ...] = (), network: str = "none") -> Result:
     """Run `cmd` in `cwd`. Only `cwd`, the throwaway HOME and `writable` can be written to."""
+    if network not in NETWORK_MODES:
+        raise ValueError(f"network must be one of {NETWORK_MODES}")
     with tempfile.TemporaryDirectory(prefix="squad-home-") as home:
         home = Path(home).resolve()
         allowed = [Path(cwd).resolve(), home, *(Path(p).resolve() for p in writable)]
         try:
             done = subprocess.run(
-                _wrap(cmd, allowed), cwd=cwd, env=clean_env(home), capture_output=True, text=True, timeout=timeout,
+                _wrap(cmd, allowed, network), cwd=cwd, env=clean_env(home), capture_output=True, text=True, timeout=timeout,
                 stdin=subprocess.DEVNULL,
             )
         except subprocess.TimeoutExpired as err:
@@ -120,7 +130,7 @@ def run(cmd: list[str], cwd: Path, timeout: int = 120, writable: tuple[Path, ...
 def pytest_command(root: Path, *extra: str) -> list[str]:
     """pytest pinned to `root`: it must not walk up into parent folders for config, which the sandbox hides anyway."""
     root = Path(root).resolve()
-    return [sys.executable, "-m", "pytest", f"--rootdir={root}", f"--confcutdir={root}", "-c", str(_pytest_config(root)), "-p", "no:cacheprovider", *extra, str(root)]
+    return [sys.executable, "-m", "pytest", f"--rootdir={root}", f"--confcutdir={root}", "-c", str(_pytest_config(root)), "-p", "no:cacheprovider", *extra]
 
 
 def _pytest_config(root: Path) -> Path:

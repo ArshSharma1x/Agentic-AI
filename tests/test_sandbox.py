@@ -60,3 +60,22 @@ def test_writes_outside_the_working_directory_do_not_land(tmp_path):
     outside.mkdir()
     result = run(work, f"try:\n    open({str(outside / 'escaped.txt')!r}, 'w').write('x')\nexcept OSError:\n    pass\nopen('inside.txt', 'w').write('ok')\n")
     assert not (outside / "escaped.txt").exists() and (work / "inside.txt").read_text() == "ok", result.output
+
+
+@isolated
+def test_loopback_mode_allows_localhost_only(tmp_path):
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+    threading.Thread(target=lambda: server.accept(), daemon=True).start()
+    port = server.getsockname()[1]
+    (tmp_path / "probe.py").write_text(
+        "import socket, sys\nhost = sys.argv[1]\ntry:\n    socket.create_connection((host, int(sys.argv[2])), timeout=3)\n"
+        "    print('CONNECTED')\nexcept OSError:\n    print('BLOCKED')\n"
+    )
+    if sandbox.isolation() == "seatbelt":  # bubblewrap gives each run its own private loopback instead
+        local = sandbox.run([sys.executable, "probe.py", "127.0.0.1", str(port)], tmp_path, network="loopback")
+        assert "CONNECTED" in local.output
+    outside = sandbox.run([sys.executable, "probe.py", "1.1.1.1", "53"], tmp_path, network="loopback")
+    server.close()
+    assert "BLOCKED" in outside.output
