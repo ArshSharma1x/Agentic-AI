@@ -18,3 +18,4 @@ jobs:
       - uses: ./
         with:
           loopback: "true"
+          fail-on-unverified: "false"  # PRs here often change CI on purpose; they show a warning for review

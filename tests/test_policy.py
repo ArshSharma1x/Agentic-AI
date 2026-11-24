@@ -41,7 +41,8 @@ def test_an_agent_cannot_loosen_the_policy_in_its_own_change(tmp_path):
     (repo / "tests" / "test_calc.py").write_text("def test_add():\n    assert True\n")
     result = verify(repo)
     assert result.policy.sensitive == ("payments/**",) and not result.policy.allow_test_changes
-    assert checks(result)["integrity"].status == "FAIL" and ".agentic.toml" in checks(result)["integrity"].detail
+    assert checks(result)["integrity"].status == "FAIL"  # the weakened test
+    assert ".agentic.toml" in checks(result)["review"].detail and result.report.verdict == "FAIL"
 
 
 def test_sensitive_paths_need_a_human(tmp_path):

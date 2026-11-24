@@ -136,6 +136,9 @@ class Gate:
         checks = [self._integrity(changes), self._compile(changes), *self._tests(changes)]
         if self.policy.require_tests:
             checks = [Check(c.name, FAIL, c.detail + " (policy requires tests)", c.data) if c.name == "tests" and c.status == UNVERIFIED else c for c in checks]
+        integrity = checks[0]
+        if review := integrity.data.get("ci_or_policy_changes"):
+            checks.append(Check("review", UNVERIFIED, f"changes CI or gate policy ({', '.join(review[:5])}): a human must review", {"paths": review}))
         if touched := self.policy.touches_sensitive([rel for _, rel in changes]):
             checks.append(Check("policy", UNVERIFIED, f"changes sensitive paths ({', '.join(touched[:5])}): a human must review", {"sensitive": touched}))
         return GateReport(checks)
@@ -143,7 +146,7 @@ class Gate:
     # 1. Integrity ------------------------------------------------------------------------------
 
     def _integrity(self, changes: list[tuple[str, str]]) -> Check:
-        problems, added_tests, approved = [], [], []
+        problems, added_tests, approved, review = [], [], [], []
         for status, rel in changes:
             name = norm(rel).split("/")[-1]
             if is_test_config(rel):
@@ -151,7 +154,7 @@ class Gate:
             elif name in ("pyproject.toml", "setup.cfg") and _pytest_section(name, self.ws.baseline_file(rel)) != _pytest_section(name, self._current(rel)):
                 problems.append(f"changed the pytest settings in {rel}")
             elif is_ci_config(rel):
-                problems.append(f"changed CI configuration {rel}")
+                review.append(rel)  # often legitimate, but what decides whether code ships needs human eyes
             elif is_test_file(rel):
                 if status == "A":
                     added_tests.append(rel)
@@ -163,7 +166,7 @@ class Gate:
                 hits = [l for l in self.ws.added_lines(rel) if UNDER_TEST.search(l)]
                 if hits:
                     problems.append(f"{rel} checks whether it is running under test or exits early: {hits[0].strip()[:80]}")
-        data = {"added_tests": added_tests, "problems": problems, "test_changes_allowed_by_policy": approved}
+        data = {"added_tests": added_tests, "problems": problems, "test_changes_allowed_by_policy": approved, "ci_or_policy_changes": review}
         if problems:
             return Check("integrity", FAIL, "; ".join(problems), data)
         note = f" ({len(added_tests)} new test file(s) added)" if added_tests else ""

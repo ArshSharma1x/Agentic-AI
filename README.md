@@ -36,7 +36,7 @@ jobs:
       - uses: ArshSharma1x/Agentic-AI@main
 ```
 
-The job fails on FAIL and UNVERIFIED, writes a summary table to the run, and signs the evidence with GitHub artifact attestations (Sigstore, no keys to manage). Anyone can then check that a commit really passed the gate: `gh attestation verify --owner <you> --predicate-type https://github.com/ArshSharma1x/Agentic-AI/attestations/verification/v0.1 ...`. This repo gates its own pull requests the same way (`.github/workflows/agentic-verify.yml`).
+The job fails on FAIL and (unless `fail-on-unverified: false`) UNVERIFIED, writes a summary table to the run, and signs the evidence with GitHub artifact attestations (Sigstore, no keys to manage). Anyone can then check that a commit really passed the gate: `gh attestation verify --owner <you> --predicate-type https://github.com/ArshSharma1x/Agentic-AI/attestations/verification/v0.1 ...`. This repo gates its own pull requests the same way (`.github/workflows/agentic-verify.yml`).
 
 ### Policy (`.agentic.toml`)
 
@@ -55,7 +55,8 @@ The author (FORGE) makes the change in a copy of your project. If Claude Code is
 
 | Check | What it catches |
 |---|---|
-| Integrity | Changed, moved or deleted existing tests; planted `conftest.py`, `pytest.ini`, `sitecustomize.py` or pytest settings in `pyproject.toml`; CI edits; source code that detects it is under test (`PYTEST_CURRENT_TEST`) or exits early |
+| Integrity | Changed, moved or deleted existing tests; planted `conftest.py`, `pytest.ini`, `sitecustomize.py` or pytest settings in `pyproject.toml`; source code that detects it is under test (`PYTEST_CURRENT_TEST`) or exits early |
+| Review | Edits to CI or to the gate's own policy: often legitimate, so not FAIL, but UNVERIFIED until a human looks |
 | Compile | Syntax errors in any changed Python, JSON, JavaScript or Java file, even ones the tests never import |
 | Original tests | Runs the tests **as they were before the change** (tampered files are put back first) and compares each test with the baseline: only failures the change introduced count; all-skipped, vanished or early-exit runs fail |
 | Hidden tests | Optional tests the author never sees. Failures are reported by count only, so the author cannot fit to them |

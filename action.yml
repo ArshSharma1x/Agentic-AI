@@ -14,6 +14,9 @@ inputs:
   loopback:
     description: Let tests use localhost (never the internet). For suites that start local servers.
     default: "false"
+  fail-on-unverified:
+    description: Fail the job when nothing could verify the change, or it needs human review (CI, policy or sensitive paths).
+    default: "true"
   attest:
     description: Sign the evidence with GitHub artifact attestations (needs id-token and attestations write permissions).
     default: "true"
@@ -77,4 +80,11 @@ runs:
         if-no-files-found: ignore
     - name: Gate
       shell: bash
-      run: exit ${{ steps.verify.outputs.code }}
+      env:
+        CODE: ${{ steps.verify.outputs.code }}
+        STRICT: ${{ inputs.fail-on-unverified }}
+      run: |
+        if [ "$CODE" = "2" ] && [ "$STRICT" != "true" ]; then
+          echo "::warning::UNVERIFIED: see the job summary for what needs a human"; exit 0
+        fi
+        exit "$CODE"
