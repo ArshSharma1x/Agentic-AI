@@ -6,17 +6,18 @@ A squad of AI agents that verifies code changes with evidence a skeptic would ac
 
 ## How it works
 
-For each ticket, an explicit and logged draft picks the squad:
+The author agent (FORGE) makes the change in a copy of your project. Then **WARDEN, the deterministic gate** (`squad/gate.py`), decides. It is code, not a model, and the author cannot talk it round:
 
-| Agent  | Role                | Does                                   |
-|--------|---------------------|----------------------------------------|
-| RADAR  | Initiator           | Gathers intel from Jira and Confluence |
-| ATLAS  | Controller          | Plans the work                         |
-| FORGE  | Duelist             | Writes the code                        |
-| WARDEN | Sentinel (QA)       | Runs the tests                         |
-| AEGIS  | Sentinel (Security) | Scans for security problems            |
+| Check | What it catches |
+|---|---|
+| Integrity | Changed, moved or deleted existing tests; planted `conftest.py`, `pytest.ini`, `sitecustomize.py` or pytest settings in `pyproject.toml`; CI edits; source code that detects it is under test (`PYTEST_CURRENT_TEST`) or exits early |
+| Compile | Syntax errors in any changed Python, JSON, JavaScript or Java file, even ones the tests never import |
+| Original tests | Runs the tests **as they were before the change** (tampered files are put back first) and compares each test with the baseline: only failures the change introduced count; all-skipped, vanished or early-exit runs fail |
+| Hidden tests | Optional tests the author never sees. Failures are reported by count only, so the author cannot fit to them |
 
-The match runs intel, plan, execute and verify, with retries. A commit happens only after the verify gates pass and the autonomy level allows it. Every agent can call only its own MCP tools, and `tests/` is read-only to agents. Each match writes a `trace.jsonl`.
+The verdict is **PASS**, **FAIL**, or **UNVERIFIED** (for example, the project has no tests). Nothing is committed on UNVERIFIED unless you accept it. AEGIS, an independent model reviewer, can add findings on top, but no model can turn a red gate green. Model-written code runs with an allow-listed environment (no API keys, tokens or SSH agent) and git runs with hooks and `fsmonitor` disabled. Each one of these defences has an adversarial test in `tests/test_gate.py`.
+
+The dispatcher sizes the squad per request (a question gets RADAR alone; a change gets FORGE, the gate, and AEGIS when payments, auth or PII are involved), and every pick is logged with its reason. Each run writes a `trace.jsonl`.
 
 ## Setup
 
@@ -43,7 +44,7 @@ agentic          # or: /path/to/Agentic-AI/.venv/bin/python -m squad
 
 This opens the squad terminal. Type what you need, the way you would in any coding assistant. A dispatcher reads each message and sends in only the agents the job needs: a greeting gets a plain reply, a question gets RADAR, a security audit gets AEGIS, a code change gets FORGE with a QA gate (plus a security gate for payments, auth or PII). The session remembers earlier turns, so follow-ups like "now add a test for that" work.
 
-The squad works on a copy of your folder and only `/apply` writes back to it. Note that tests the squad runs are not yet isolated from your machine (fix in progress).
+The squad works on a copy of your folder and only `/apply` writes back to it. Tests run without your secrets in their environment, but are not yet network-isolated (fix in progress).
 
 | Command | Does |
 |---|---|

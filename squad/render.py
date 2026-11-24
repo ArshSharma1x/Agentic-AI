@@ -4,7 +4,8 @@ from .agents import ROSTER
 
 RESET, DIM, BOLD = "\033[0m", "\033[2m", "\033[1m"
 ROLE_COLORS = {"Duelist": "\033[91m", "Initiator": "\033[96m", "Controller": "\033[93m", "Sentinel": "\033[92m"}
-RED, GREEN = "\033[91m", "\033[92m"
+RED, GREEN, YELLOW = "\033[91m", "\033[92m", "\033[93m"
+VERDICT_COLORS = {"PASS": GREEN, "FAIL": RED, "UNVERIFIED": YELLOW}
 
 
 def _who(name: str) -> str:
@@ -42,6 +43,13 @@ def render(event: dict) -> str | None:
         label = f"{GREEN}PASS{RESET}" if event["passed"] else f"{RED}FAIL{RESET}"
         issues = "".join(f"\n{'':<17}{RED}- {_short(i, 110)}{RESET}" for i in event["issues"])
         return f"{t} {_who(event['agent'])} verdict {label}{issues}"
+    if kind == "gate":
+        color = VERDICT_COLORS[event["verdict"]]
+        lines = [f"{t} {_who('WARDEN')} gate {color}{event['verdict']}{RESET}"]
+        for check in event["checks"]:
+            mark = {"PASS": f"{GREEN}ok{RESET}", "FAIL": f"{RED}!!{RESET}", "UNVERIFIED": f"{YELLOW}??{RESET}"}[check["status"]]
+            lines.append(f"{'':<17}{mark} {check['name']}: {DIM}{_short(check['detail'], 110)}{RESET}")
+        return "\n".join(lines)
     if kind == "retry":
         return f"{t} {BOLD}RETRY{RESET} attempt {event['attempt']} rejected; sending {len(event['issues'])} issue(s) back to FORGE"
     if kind == "approval":
@@ -49,7 +57,10 @@ def render(event: dict) -> str | None:
     if kind == "commit":
         return f"{t} {BOLD}COMMIT{RESET} {event['sha']}"
     if kind == "match_end":
-        verdict = f"{GREEN}VICTORY{RESET}" if event["success"] else f"{RED}DEFEAT{RESET}"
+        if event.get("verdict") == "UNVERIFIED" and event["success"]:
+            verdict = f"{YELLOW}UNVERIFIED{RESET}"
+        else:
+            verdict = f"{GREEN}VICTORY{RESET}" if event["success"] else f"{RED}DEFEAT{RESET}"
         tokens = event["input_tokens"] + event["output_tokens"]
         answer = f"\n\n{event['answer']}" if event.get("answer") else ""
         return (

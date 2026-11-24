@@ -170,13 +170,6 @@ class ScriptedLLM:
             return [_use("workspace__run_tests")]
         return [_use("submit_work", summary=f"Implemented {path} (attempt {meta['attempt']}) and ran the test suite.")]
 
-    def _warden(self, step, messages, meta):
-        if step == 0:
-            return [_use("workspace__run_tests")]
-        run = _find(_results(messages), "exit_code") or {"passed": False, "output": ""}
-        issues = [] if run["passed"] else [l for l in run["output"].splitlines() if l.startswith("FAILED")] or ["test suite failed"]
-        return [_use("submit_verdict", passed=run["passed"], issues=issues)]
-
     def _aegis(self, step, messages, meta):
         if step == 0:
             return [_use("workspace__git_diff")]

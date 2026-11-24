@@ -43,23 +43,19 @@ FORGE = AgentSpec(
     ),
     system=(
         "You are FORGE, the Duelist. You implement the change. Read the existing code, write the "
-        "implementation, and run the tests yourself before you finish. The tests/ directory is "
-        "read-only: never try to change the tests to make them pass. If you receive issues from a "
-        "previous attempt, fix every one of them. Hand in a summary when the work is done."
+        "implementation, and run the tests yourself before you finish. Existing tests, test configuration "
+        "and CI files are read-only, and an independent gate re-runs the original tests (plus hidden ones) "
+        "after you finish, so changing or skipping tests cannot help you. Add tests for new behaviour in new "
+        "test files. If you receive issues from a previous attempt, fix every one of them. Hand in a summary "
+        "when the work is done."
     ),
 )
 
 WARDEN = AgentSpec(
-    name="WARDEN", role=Role.SENTINEL, model=FAST_MODEL, deliverable="submit_verdict",
-    abilities=_abilities(
-        ("Run Tests", "workspace__run_tests"), ("Read File", "workspace__read_file"),
-        ("Survey Files", "workspace__list_files"), ("Read Diff", "workspace__git_diff"),
-    ),
-    system=(
-        "You are WARDEN, the QA Sentinel. You decide whether the work meets the acceptance criteria. "
-        "Run the tests and read the diff. Pass only if the tests pass and the criteria are met. "
-        "List each concrete problem you find so the implementer can fix it. Do not fix anything yourself."
-    ),
+    # Not a model. The orchestrator runs squad/gate.py in its place; this spec exists for the roster and the UI.
+    name="WARDEN", role=Role.SENTINEL, model="deterministic", deliverable="submit_verdict",
+    abilities=_abilities(("Integrity", "gate:integrity"), ("Compile", "gate:compile"), ("Original Tests", "gate:tests"), ("Hidden Tests", "gate:hidden-tests")),
+    system="WARDEN is the deterministic gate: integrity, compile and original-test checks computed by code.",
 )
 
 AEGIS = AgentSpec(

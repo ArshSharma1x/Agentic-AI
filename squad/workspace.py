@@ -16,7 +16,12 @@ PROTECTED_DIRS = {"tests"}
 MONEY_FUNCTIONS = {"refund", "charge", "transfer", "payout"}
 DANGEROUS_CALLS = re.compile(r"\b(eval|exec)\(|pickle\.loads|os\.system\(|shell\s*=\s*True")
 HARDCODED_SECRET = re.compile(r"(api[_-]?key|secret|password|token)\s*=\s*['\"][^'\"]{8,}['\"]", re.I)
-GIT_IDENTITY = ["-c", "user.name=squad", "-c", "user.email=squad@local"]
+# Identity, plus overrides so a planted .git/config or hook can never run code when the orchestrator uses git.
+GIT_SAFE = [
+    "-c", "user.name=squad", "-c", "user.email=squad@local", "-c", "core.fsmonitor=false",
+    "-c", "core.hooksPath=/dev/null", "-c", "core.sshCommand=false", "-c", "diff.external=", "-c", "core.pager=cat",
+]
+GIT_ENV = {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TERMINAL_PROMPT": "0"}
 
 
 class WorkspaceError(ToolError):
@@ -35,10 +40,17 @@ class Workspace:
 
     def _git(self, *args: str) -> str:
         done = subprocess.run(
-            ["git", *GIT_IDENTITY, *args], cwd=self.root, capture_output=True, text=True, timeout=30
+            ["git", *GIT_SAFE, *args], cwd=self.root, capture_output=True, timeout=30,
+            env={**os.environ, **GIT_ENV},
         )
         if done.returncode != 0:
-            raise WorkspaceError(done.stderr.strip() or f"git {args[0]} failed")
+            raise WorkspaceError(done.stderr.decode(errors="replace").strip() or f"git {args[0]} failed")
+        return done.stdout.decode(errors="replace")
+
+    def _git_bytes(self, *args: str) -> bytes:
+        done = subprocess.run(["git", *GIT_SAFE, *args], cwd=self.root, capture_output=True, timeout=30, env={**os.environ, **GIT_ENV})
+        if done.returncode != 0:
+            raise WorkspaceError(done.stderr.decode(errors="replace").strip() or f"git {args[0]} failed")
         return done.stdout
 
     def init_repo(self) -> None:
@@ -65,10 +77,16 @@ class Workspace:
         return target.read_text()
 
     def write_file(self, path: str, content: str) -> str:
+        from .gate import is_ci_config, is_protected, is_test_config, norm
+
         target = self._resolve(path)
-        first = target.relative_to(self.root).parts[0]
-        if first in PROTECTED_DIRS:
-            raise WorkspaceError(f"{first}/ is read-only: agents may not edit the tests")
+        rel = str(target.relative_to(self.root))
+        if any(part.lower() == ".git" for part in Path(rel).parts):
+            raise WorkspaceError("the .git directory is off limits")
+        if is_test_config(rel) or is_ci_config(rel):
+            raise WorkspaceError(f"{rel} controls how tests or CI run; agents may not create or change it")
+        if is_protected(rel) and norm(rel) in self._baseline_protected():
+            raise WorkspaceError(f"{rel} is an existing test and is read-only. Add new tests in a new file instead.")
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content)
         return f"wrote {len(content)} chars to {path}"
@@ -80,21 +98,47 @@ class Workspace:
         )
 
     def run_tests(self, timeout: int = 60) -> dict:
+        """The author's own check while working. It is advisory: the gate re-runs the original tests itself."""
+        from . import sandbox
+
         if not self.has_python_tests():
-            return {"passed": True, "exit_code": None, "output": "no pytest tests in this project, so nothing was run (only pytest is supported)"}
-        try:
-            done = subprocess.run(
-                [sys.executable, "-m", "pytest", "-q", "--no-header", "-p", "no:cacheprovider"],
-                cwd=self.root, capture_output=True, text=True, timeout=timeout,
-            )
-        except subprocess.TimeoutExpired:
-            return {"passed": False, "exit_code": None, "output": f"tests timed out after {timeout}s"}
-        output = (done.stdout + done.stderr).strip()
-        return {"passed": done.returncode == 0, "exit_code": done.returncode, "output": output[-4000:]}
+            return {"passed": None, "exit_code": None, "output": "no pytest tests in this project, so nothing was run. The gate will report this change as UNVERIFIED unless you add tests in new files."}
+        result = sandbox.run([sys.executable, "-m", "pytest", "-q", "--no-header", "-p", "no:cacheprovider"], self.root, timeout=timeout)
+        return {"passed": result.exit_code == 0, "exit_code": result.exit_code, "output": result.output.strip()[-4000:]}
 
     def git_diff(self) -> str:
         self._git("add", "-A")
-        return self._git("diff", "--cached") or "(no changes)"
+        return self._git("diff", "--cached", "--no-ext-diff") or "(no changes)"
+
+    def _baseline_protected(self) -> set[str]:
+        from .gate import is_protected, norm
+
+        if not hasattr(self, "_protected_cache"):
+            self._protected_cache = {norm(f) for f in self.baseline_files() if is_protected(f)}
+        return self._protected_cache
+
+    def baseline_files(self) -> list[str]:
+        return [f for f in self._git("ls-tree", "-r", "--name-only", self.baseline()).splitlines() if f]
+
+    def baseline_bytes(self, path: str) -> bytes | None:
+        try:
+            return self._git_bytes("show", f"{self.baseline()}:{path}")
+        except WorkspaceError:
+            return None
+
+    def export_baseline(self, dest: Path) -> None:
+        """The project exactly as it was before any agent touched it."""
+        import tarfile
+        from io import BytesIO
+
+        dest.mkdir(parents=True)
+        with tarfile.open(fileobj=BytesIO(self._git_bytes("archive", self.baseline()))) as archive:
+            archive.extractall(dest, filter="data")
+
+    def added_lines(self, path: str) -> list[str]:
+        self._git("add", "-A")
+        diff = self._git("diff", "--cached", "--no-renames", "--no-ext-diff", self.baseline(), "--", path)
+        return [l[1:] for l in diff.splitlines() if l.startswith("+") and not l.startswith("+++")]
 
     def baseline(self) -> str:
         return self._git("rev-list", "--max-parents=0", "HEAD").split()[0]
@@ -102,12 +146,12 @@ class Workspace:
     def changes(self) -> list[tuple[str, str]]:
         """(status, path) for everything that differs from the baseline: A added, M modified, D deleted."""
         self._git("add", "-A")
-        rows = self._git("diff", "--cached", "--name-status", self.baseline()).splitlines()
+        rows = self._git("diff", "--cached", "--no-renames", "--name-status", self.baseline()).splitlines()
         return [(row.split("\t")[0][0], row.split("\t")[-1]) for row in rows if row.strip()]
 
     def baseline_diff(self) -> str:
         self._git("add", "-A")
-        return self._git("diff", "--cached", self.baseline()) or "(no changes)"
+        return self._git("diff", "--cached", "--no-ext-diff", self.baseline()) or "(no changes)"
 
     def baseline_file(self, path: str) -> str | None:
         try:

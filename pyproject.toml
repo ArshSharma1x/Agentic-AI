@@ -5,11 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "agentic-squad"
 version = "0.1.0"
-description = "A squad of role-based AI agents that takes a ticket from requirements to verified delivery over MCP."
+description = "A verification gate for AI coding agents: deterministic, tamper-evident checks on every change."
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=2.3",
     "mcp>=2.3",
+    "jsonschema>=4.20",
 ]
 
 [project.optional-dependencies]

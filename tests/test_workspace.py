@@ -48,4 +48,4 @@ def test_run_tests_does_not_run_pytest_when_the_project_has_no_python_tests(tmp_
 
     (tmp_path / "Calc.java").write_text("class Calc {}\n")
     result = Workspace(tmp_path).run_tests()
-    assert result["passed"] and "nothing was run" in result["output"]
+    assert result["passed"] is None and "nothing was run" in result["output"] and "UNVERIFIED" in result["output"]

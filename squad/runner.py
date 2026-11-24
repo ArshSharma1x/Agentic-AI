@@ -1,5 +1,7 @@
 """The agent loop: call the model, run the tools it asks for, repeat until it hands in its deliverable."""
 
+import jsonschema
+
 from .llm import LLM
 from .local_tools import LOCAL_TOOLS
 from .mcp_host import MCPHost, ToolCallError
@@ -17,6 +19,14 @@ class AgentError(Exception):
 def _preview(text: str) -> str:
     text = " ".join(text.split())
     return text if len(text) <= PREVIEW_CHARS else text[:PREVIEW_CHARS] + "..."
+
+
+def _invalid(args, schema: dict) -> str | None:
+    try:
+        jsonschema.validate(args, {**schema, "additionalProperties": False})
+    except jsonschema.ValidationError as err:
+        return f"rejected: {err.message}. Call the tool again with valid arguments."
+    return None
 
 
 async def run_agent(
@@ -49,6 +59,11 @@ async def run_agent(
             run.tool_calls += 1
             trace.emit("tool_call", agent=agent.name, tool=name, args=args)
             if name == agent.deliverable:
+                problem = _invalid(args, LOCAL_TOOLS[name]["input_schema"])
+                if problem:  # e.g. passed: "false" instead of false. Ask for a repair instead of trusting it.
+                    trace.emit("tool_result", agent=agent.name, tool=name, ok=False, preview=_preview(problem))
+                    results.append({"type": "tool_result", "tool_use_id": call["id"], "content": problem, "is_error": True})
+                    continue
                 run.deliverable = args
                 finished = True
                 results.append({"type": "tool_result", "tool_use_id": call["id"], "content": "recorded"})
