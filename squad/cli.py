@@ -145,18 +145,27 @@ def _ui(args) -> int:
 def _verify(args) -> int:
     import json
 
+    from . import evidence
     from .gate import FAIL, PASS
+    from .policy import PolicyError
     from .verify import VerifyError, verify
 
     try:
         result = verify(Path(args.repo), base=args.base, head=args.head, hidden=Path(args.hidden) if args.hidden else None,
-                        network="loopback" if args.loopback else "none")
-    except VerifyError as err:
+                        network="loopback" if args.loopback else None)
+    except (VerifyError, PolicyError) as err:
         print(f"agentic verify: {err}", file=sys.stderr)
         return 3
     report = result.report
     if args.json:
         Path(args.json).write_text(json.dumps(result.to_dict(), indent=2))
+    if args.evidence:
+        evidence.write(args.evidence, evidence.statement(result, args.subject or f"git+file://{result.repo}"))
+    if args.predicate:
+        evidence.write(args.predicate, evidence.predicate(result))
+    if args.summary_md:
+        with open(args.summary_md, "a") as out:
+            out.write(evidence.summary_markdown(result))
     if not args.quiet:
         print(f"Verifying {result.head_label} against {result.base_label} ({result.base[:10]}), {len(result.changes)} file(s) changed")
         print(render({"type": "gate", "t": 0.0, "agent": "WARDEN", **report.to_dict()}))
@@ -207,6 +216,10 @@ def main(argv: list[str] | None = None) -> int:
     ver.add_argument("--head", help="commit to verify instead of the working tree")
     ver.add_argument("--hidden", help="folder of hidden tests the author never saw")
     ver.add_argument("--json", help="write the full report to this file")
+    ver.add_argument("--evidence", help="write an in-toto attestation statement of this verification to this file")
+    ver.add_argument("--predicate", help="write only the attestation predicate (for actions/attest) to this file")
+    ver.add_argument("--subject", help="subject name for the attestation (default: the repo path)")
+    ver.add_argument("--summary-md", help="append a markdown summary to this file (e.g. $GITHUB_STEP_SUMMARY)")
     ver.add_argument("--loopback", action="store_true", help="let tests use localhost (never the internet); for suites that start local servers")
     ver.add_argument("--repo", default=".", help="repository to verify (default: current folder)")
     ver.add_argument("-q", "--quiet", action="store_true")

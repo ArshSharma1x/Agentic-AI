@@ -1,0 +1,21 @@
+# Dogfooding: every pull request to this repo is gated, and its evidence signed, by the tool itself.
+name: agentic-verify
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./
+        with:
+          loopback: "true"
+          fail-on-unverified: "false"  # PRs here often change CI on purpose; they show a warning for review

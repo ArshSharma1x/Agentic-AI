@@ -12,7 +12,10 @@ from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
 
+import hashlib
+
 from .gate import Gate, GateReport
+from .policy import POLICY_FILE, Policy, parse
 from .workspace import SKIP_FILES, Workspace, WorkspaceError
 
 BASE_CANDIDATES = ("origin/HEAD", "origin/main", "main", "origin/master", "master")
@@ -30,11 +33,16 @@ class Verification:
     head_label: str
     changes: list[tuple[str, str]] = field(default_factory=list)
     report: GateReport | None = None
+    policy: Policy = field(default_factory=Policy)
+    file_digests: dict[str, str] = field(default_factory=dict)  # sha256 of every changed file as verified
+    tree_sha256: str = ""  # one digest over every file in the verified tree: the attestation's subject
 
     def to_dict(self) -> dict:
         return {
             "repo": self.repo, "base": self.base, "base_label": self.base_label, "head": self.head_label,
-            "changes": [{"status": s, "path": p} for s, p in self.changes], **(self.report.to_dict() if self.report else {}),
+            "tree_sha256": self.tree_sha256, "policy": self.policy.to_dict(),
+            "changes": [{"status": s, "path": p, "sha256": self.file_digests.get(p)} for s, p in self.changes],
+            **(self.report.to_dict() if self.report else {}),
         }
 
 
@@ -106,12 +114,24 @@ def build(repo: Path, base: str, head: str | None, dest: Path) -> Path:
     return ws
 
 
-def verify(repo: Path, *, base: str | None = None, head: str | None = None, hidden: Path | None = None, network: str = "none") -> Verification:
+def _digests(ws: Path, changes: list[tuple[str, str]]) -> tuple[dict[str, str], str]:
+    files = sorted(p for p in ws.rglob("*") if p.is_file() and ".git" not in p.relative_to(ws).parts)
+    tree = hashlib.sha256()
+    for path in files:
+        tree.update(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(ws).as_posix()}\n".encode())
+    changed = {rel: hashlib.sha256((ws / rel).read_bytes()).hexdigest() for status, rel in changes if status != "D" and (ws / rel).is_file()}
+    return changed, tree.hexdigest()
+
+
+def verify(repo: Path, *, base: str | None = None, head: str | None = None, hidden: Path | None = None, network: str | None = None) -> Verification:
     repo = Path(repo).resolve()
     sha, base_label, head_label = resolve(repo, base, head)
-    result = Verification(str(repo), sha, base_label, head_label)
+    # The rules come from the base commit: the change being judged cannot rewrite them.
+    policy = parse(Workspace(repo).baseline_file_at(sha, POLICY_FILE), f"{POLICY_FILE} at {sha[:10]}")
+    result = Verification(str(repo), sha, base_label, head_label, policy=policy)
     with tempfile.TemporaryDirectory(prefix="agentic-verify-") as scratch:
         ws = build(repo, sha, head, Path(scratch))
         result.changes = Workspace(ws).changes()
-        result.report = Gate(ws, hidden_tests=hidden.resolve() if hidden else None, network=network).run()
+        result.file_digests, result.tree_sha256 = _digests(ws, result.changes)
+        result.report = Gate(ws, hidden_tests=hidden.resolve() if hidden else None, policy=policy, network=network).run()
     return result

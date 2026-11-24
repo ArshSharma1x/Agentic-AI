@@ -21,7 +21,33 @@ WARDEN gate FAIL (sandbox: seatbelt)
    !! tests: 1 test(s) fail: tests.test_calc::test_add
 ```
 
-It rebuilds the change in a private copy with the base commit as the baseline, so your repo is never modified and its hooks never run. With no `--base`, uncommitted work is checked against `HEAD`, and a clean branch against where it left `main`. Exit codes: `0` PASS, `1` FAIL, `2` UNVERIFIED, `3` usage error, so it drops straight into CI. Options: `--hidden <dir>` adds tests the agent never saw, `--json <file>` writes the full report, `--loopback` lets suites that start local servers use localhost (never the internet).
+It rebuilds the change in a private copy with the base commit as the baseline, so your repo is never modified and its hooks never run. With no `--base`, uncommitted work is checked against `HEAD`, and a clean branch against where it left `main`. Exit codes: `0` PASS, `1` FAIL, `2` UNVERIFIED, `3` usage error, so it drops straight into CI. Options: `--hidden <dir>` adds tests the agent never saw, `--json <file>` writes the full report, `--evidence <file>` writes an [in-toto](https://in-toto.io) attestation statement, `--loopback` lets suites that start local servers use localhost (never the internet).
+
+### In CI, on every pull request
+
+```yaml
+permissions: { contents: read, id-token: write, attestations: write }
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: ArshSharma1x/Agentic-AI@main
+```
+
+The job fails on FAIL and (unless `fail-on-unverified: false`) UNVERIFIED, writes a summary table to the run, and signs the evidence with GitHub artifact attestations (Sigstore, no keys to manage). Anyone can then check that a commit really passed the gate: `gh attestation verify --owner <you> --predicate-type https://github.com/ArshSharma1x/Agentic-AI/attestations/verification/v0.1 ...`. This repo gates its own pull requests the same way (`.github/workflows/agentic-verify.yml`).
+
+### Policy (`.agentic.toml`)
+
+```toml
+network = "none"              # or "loopback"
+require_tests = false         # true: untestable changes FAIL instead of UNVERIFIED
+allow_test_changes = false    # true: edits to existing tests are reported, and the edited tests run
+sensitive = ["payments/**"]   # changes here are UNVERIFIED until a human reviews them
+```
+
+The policy is read from the **base** commit, so a change cannot loosen the rules that judge it, and editing the file counts as tampering.
 
 ## How it works
 
@@ -29,7 +55,8 @@ The author (FORGE) makes the change in a copy of your project. If Claude Code is
 
 | Check | What it catches |
 |---|---|
-| Integrity | Changed, moved or deleted existing tests; planted `conftest.py`, `pytest.ini`, `sitecustomize.py` or pytest settings in `pyproject.toml`; CI edits; source code that detects it is under test (`PYTEST_CURRENT_TEST`) or exits early |
+| Integrity | Changed, moved or deleted existing tests; planted `conftest.py`, `pytest.ini`, `sitecustomize.py` or pytest settings in `pyproject.toml`; source code that detects it is under test (`PYTEST_CURRENT_TEST`) or exits early |
+| Review | Edits to CI or to the gate's own policy: often legitimate, so not FAIL, but UNVERIFIED until a human looks |
 | Compile | Syntax errors in any changed Python, JSON, JavaScript or Java file, even ones the tests never import |
 | Original tests | Runs the tests **as they were before the change** (tampered files are put back first) and compares each test with the baseline: only failures the change introduced count; all-skipped, vanished or early-exit runs fail |
 | Hidden tests | Optional tests the author never sees. Failures are reported by count only, so the author cannot fit to them |
