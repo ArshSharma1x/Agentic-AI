@@ -5,6 +5,7 @@ that judge it, and changing the file itself counts as tampering.
     require_tests = false       # true: a change nothing can test is FAIL instead of UNVERIFIED
     allow_test_changes = false  # true: edits to existing tests are reported, and the edited tests are run
     sensitive = ["payments/**"] # changes here are UNVERIFIED until a human reviews them
+    allow_preexisting_failures = false  # true: tests that already failed before the change do not block it
     timeout = 180               # seconds per test run
 """
 
@@ -27,6 +28,7 @@ class Policy:
     require_tests: bool = False
     allow_test_changes: bool = False
     sensitive: tuple[str, ...] = ()
+    allow_preexisting_failures: bool = False
     timeout: int = 180
     source: str = "default"
 
@@ -44,13 +46,14 @@ def parse(text: str | None, source: str) -> Policy:
         raw = tomllib.loads(text)
     except tomllib.TOMLDecodeError as err:
         raise PolicyError(f"{POLICY_FILE} at {source} is not valid TOML: {err}") from err
-    known = {"network", "require_tests", "allow_test_changes", "sensitive", "timeout"}
+    known = {"network", "require_tests", "allow_test_changes", "sensitive", "timeout", "allow_preexisting_failures"}
     if unknown := set(raw) - known:
         raise PolicyError(f"{POLICY_FILE}: unknown setting(s) {', '.join(sorted(unknown))}")
     policy = Policy(
         network=raw.get("network", "none"), require_tests=bool(raw.get("require_tests", False)),
         allow_test_changes=bool(raw.get("allow_test_changes", False)), sensitive=tuple(raw.get("sensitive", ())),
         timeout=int(raw.get("timeout", 180)), source=source,
+        allow_preexisting_failures=bool(raw.get("allow_preexisting_failures", False)),
     )
     if policy.network not in NETWORK_MODES:
         raise PolicyError(f"{POLICY_FILE}: network must be one of {NETWORK_MODES}")

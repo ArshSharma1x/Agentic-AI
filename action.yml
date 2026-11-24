@@ -17,6 +17,9 @@ inputs:
   fail-on-unverified:
     description: Fail the job when nothing could verify the change, or it needs human review (CI, policy or sensitive paths).
     default: "true"
+  approval-label:
+    description: A maintainer adding this label to the pull request approves its edits to existing tests (recorded in the evidence).
+    default: "agentic:approved-test-changes"
   attest:
     description: Sign the evidence with GitHub artifact attestations (needs id-token and attestations write permissions).
     default: "true"
@@ -48,11 +51,17 @@ runs:
         HIDDEN: ${{ inputs.hidden-tests }}
         LOOPBACK: ${{ inputs.loopback }}
         SUBJECT: git+${{ github.server_url }}/${{ github.repository }}@${{ github.sha }}
+        LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        APPROVAL_LABEL: ${{ inputs.approval-label }}
+        PR: ${{ github.event.pull_request.number }}
       run: |
         args=(verify --base "$BASE" --head HEAD --json agentic-report.json --predicate agentic-predicate.json
               --evidence agentic-evidence.json --subject "$SUBJECT" --summary-md "$GITHUB_STEP_SUMMARY")
         [ -n "$HIDDEN" ] && args+=(--hidden "$HIDDEN")
         [ "$LOOPBACK" = "true" ] && args+=(--loopback)
+        if python -c 'import json,os,sys; sys.exit(os.environ["APPROVAL_LABEL"] not in json.loads(os.environ.get("LABELS") or "[]"))' 2>/dev/null; then
+          args+=(--approve-test-changes "the $APPROVAL_LABEL label on pull request #$PR")
+        fi
         set +e
         agentic "${args[@]}"
         code=$?

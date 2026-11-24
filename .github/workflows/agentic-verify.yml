@@ -2,6 +2,7 @@
 name: agentic-verify
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]  # labeled: a maintainer's approval re-runs the gate
 
 permissions:
   contents: read

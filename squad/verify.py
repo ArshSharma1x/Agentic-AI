@@ -4,6 +4,7 @@ It rebuilds the change in a private working copy, with the base commit as the ba
 Nothing in the user's repo is modified, and the repo's own git hooks and config never run.
 """
 
+import dataclasses
 import fnmatch
 import shutil
 import tarfile
@@ -102,6 +103,7 @@ def build(repo: Path, base: str, head: str | None, dest: Path) -> Path:
             shutil.rmtree(child) if child.is_dir() and not child.is_symlink() else child.unlink()
     if head:
         _extract(repo, head, ws)
+        Workspace(ws)._git("read-tree", "HEAD")
         return ws
     listed = _git(repo, "ls-files", "-co", "--exclude-standard").splitlines()
     for rel in listed:
@@ -110,7 +112,9 @@ def build(repo: Path, base: str, head: str | None, dest: Path) -> Path:
             continue  # deleted in the working tree, or a secrets file the gate never needs
         target = ws / rel
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, target, follow_symlinks=False)
+        shutil.copy(source, target, follow_symlinks=False)  # fresh timestamps: old ones can hide same-size edits from git
+    # Drop the index's cached file stats so git compares contents, never timestamps ("racy clean" files).
+    Workspace(ws)._git("read-tree", "HEAD")
     return ws
 
 
@@ -123,11 +127,17 @@ def _digests(ws: Path, changes: list[tuple[str, str]]) -> tuple[dict[str, str], 
     return changed, tree.hexdigest()
 
 
-def verify(repo: Path, *, base: str | None = None, head: str | None = None, hidden: Path | None = None, network: str | None = None) -> Verification:
+def verify(
+    repo: Path, *, base: str | None = None, head: str | None = None, hidden: Path | None = None, network: str | None = None,
+    approve_test_changes: str | None = None,
+) -> Verification:
     repo = Path(repo).resolve()
     sha, base_label, head_label = resolve(repo, base, head)
     # The rules come from the base commit: the change being judged cannot rewrite them.
     policy = parse(Workspace(repo).baseline_file_at(sha, POLICY_FILE), f"{POLICY_FILE} at {sha[:10]}")
+    if approve_test_changes:
+        # A human said yes to this change's test edits (e.g. a maintainer's PR label). It is recorded, not implied.
+        policy = dataclasses.replace(policy, allow_test_changes=True, source=f"{policy.source}; test changes approved by {approve_test_changes}")
     result = Verification(str(repo), sha, base_label, head_label, policy=policy)
     with tempfile.TemporaryDirectory(prefix="agentic-verify-") as scratch:
         ws = build(repo, sha, head, Path(scratch))

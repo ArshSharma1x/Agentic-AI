@@ -38,19 +38,21 @@ The dispatcher still sizes the squad per request, and policy rules still overrid
 
 ## Status
 
-What works today: the terminal (`agentic`), the dispatcher with policy rules, per-role tool permissions enforced in code, local MCP servers, a JSONL trace with replay, copy-on-write sessions with `/diff` and `/apply`, and two model backends (Anthropic API, or a logged-in Claude Code).
+| Phase | Work | State |
+|---|---|---|
+| P0 | Remove unbacked claims; adversarial tests for every audit finding | Done |
+| P1 | Deterministic gate computed by code; "no tests" is UNVERIFIED | Done (`squad/gate.py`) |
+| P2 | Test integrity: tamper detection, pristine and hidden tests, baseline comparison, protected `.git` | Done |
+| P3 | OS sandbox (Seatbelt / bubblewrap): no network, no home directory, allow-listed env; untrusted-content handling | Done (`squad/sandbox.py`) |
+| P4 | Pluggable author (Claude Code as FORGE) and `agentic verify` for any agent's change | Done |
+| P5 | Per-repo policy from the base commit; in-toto evidence signed in CI; GitHub Action; this repo gates its own PRs | Done |
+| P6 | Live eval with hidden and impossible tasks, measuring what naive CI misses and what the gate catches | Done ([docs/eval](docs/eval/README.md)); harder tasks next |
 
-An independent audit in November 2026 ([docs/research/notes/code_audit.md](docs/research/notes/code_audit.md)) found that the old gates trusted the model's own verdict, that the tests could be disabled by the author, and that model-written code ran with the user's environment and network. Those are being fixed in this order:
+Known limits, stated plainly:
 
-| Phase | Work |
-|---|---|
-| P0 | Remove unbacked claims; adversarial tests for every audit finding |
-| P1 | Deterministic gates computed by the orchestrator; "no tests" is UNVERIFIED |
-| P2 | Test integrity: tamper detection, pristine and hidden tests, protected `.git` |
-| P3 | Real isolation (no network, allow-listed environment) and untrusted-content handling |
-| P4 | Pluggable author agents, and `agentic verify` for changes made by any agent |
-| P5 | Per-repo policy file and a signed evidence bundle per change |
-| P6 | A live-model eval with hidden tests against a fair single-agent baseline |
+- Only pytest suites are run. Other languages get compile checks (Java, JavaScript, JSON) and are otherwise UNVERIFIED.
+- Special-casing a test's exact inputs is caught by a structural detector (UNVERIFIED) and by hidden tests; subtler overfitting needs hidden tests.
+- On a machine with no OS sandbox the gate still runs, and the evidence says `sandbox: none`.
 
 The research behind this direction is in [docs/research/](docs/research/agentic-ai-landscape-and-gaps.md).
 
