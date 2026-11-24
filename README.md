@@ -112,7 +112,7 @@ Limits to know: tests run with `pytest` using the squad's own Python, so a proje
 
 ## Other commands
 
-`run` and `eval` are dev tools that use a scripted model and the bundled demo tickets, so they work with no key.
+`run` is a dev tool that uses a scripted model and the bundled demo tickets, so it works with no key.
 
 ```
 python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
