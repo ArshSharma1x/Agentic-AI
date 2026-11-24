@@ -4,6 +4,25 @@ A squad of AI agents that verifies code changes with evidence a skeptic would ac
 
 > **Status, stated plainly:** an audit in November 2026 found that the old gates trusted the model's own verdict and that model-written code ran without isolation. Both are fixed (deterministic gate, OS sandbox), with an adversarial test for every finding. Pluggable author agents, signed evidence and a live eval are next (see vision.md).
 
+## Verify any agent's work
+
+Let Claude Code, Codex, Cursor or anything else make a change, then:
+
+```
+cd your-repo
+agentic verify
+```
+
+```
+Verifying your working tree against HEAD (uncommitted changes), 2 file(s) changed
+WARDEN gate FAIL (sandbox: seatbelt)
+   !! integrity: changed existing test tests/test_calc.py
+   ok compile: 1 changed file(s) compile
+   !! tests: 1 test(s) fail: tests.test_calc::test_add
+```
+
+It rebuilds the change in a private copy with the base commit as the baseline, so your repo is never modified and its hooks never run. With no `--base`, uncommitted work is checked against `HEAD`, and a clean branch against where it left `main`. Exit codes: `0` PASS, `1` FAIL, `2` UNVERIFIED, `3` usage error, so it drops straight into CI. Options: `--hidden <dir>` adds tests the agent never saw, `--json <file>` writes the full report, `--loopback` lets suites that start local servers use localhost (never the internet).
+
 ## How it works
 
 The author agent (FORGE) makes the change in a copy of your project. Then **WARDEN, the deterministic gate** (`squad/gate.py`), decides. It is code, not a model, and the author cannot talk it round:
