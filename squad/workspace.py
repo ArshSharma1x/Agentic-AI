@@ -154,6 +154,12 @@ class Workspace:
         self._git("add", "-A")
         return self._git("diff", "--cached", "--no-ext-diff", self.baseline()) or "(no changes)"
 
+    def baseline_file_at(self, ref: str, path: str) -> str | None:
+        try:
+            return self._git("show", f"{ref}:{path}")
+        except WorkspaceError:
+            return None
+
     def baseline_file(self, path: str) -> str | None:
         try:
             return self._git("show", f"{self.baseline()}:{path}")

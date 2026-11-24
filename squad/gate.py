@@ -25,6 +25,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from . import sandbox
+from .policy import POLICY_FILE, Policy
 from .workspace import Workspace
 
 PASS, FAIL, UNVERIFIED = "PASS", "FAIL", "UNVERIFIED"
@@ -55,7 +56,8 @@ def is_test_config(rel: str) -> bool:
 
 
 def is_ci_config(rel: str) -> bool:
-    return norm(rel).startswith(CI_PREFIXES)
+    """CI and the gate's own policy: an author must never edit what decides whether its work ships."""
+    return norm(rel).startswith(CI_PREFIXES) or norm(rel) == POLICY_FILE
 
 
 def is_protected(rel: str) -> bool:
@@ -121,21 +123,27 @@ class TestRun:
 
 
 class Gate:
-    def __init__(self, workspace: Path, *, hidden_tests: Path | None = None, timeout: int = 180, network: str = "none") -> None:
+    def __init__(self, workspace: Path, *, hidden_tests: Path | None = None, policy: Policy | None = None, network: str | None = None) -> None:
         self.ws = Workspace(workspace)
         self.hidden_tests = hidden_tests
-        self.timeout = timeout
-        self.network = network
+        self.policy = policy or Policy()
+        self.timeout = self.policy.timeout
+        self.network = network or self.policy.network
         self._baseline_run: TestRun | None = None
 
     def run(self) -> GateReport:
         changes = self.ws.changes()
-        return GateReport([self._integrity(changes), self._compile(changes), *self._tests(changes)])
+        checks = [self._integrity(changes), self._compile(changes), *self._tests(changes)]
+        if self.policy.require_tests:
+            checks = [Check(c.name, FAIL, c.detail + " (policy requires tests)", c.data) if c.name == "tests" and c.status == UNVERIFIED else c for c in checks]
+        if touched := self.policy.touches_sensitive([rel for _, rel in changes]):
+            checks.append(Check("policy", UNVERIFIED, f"changes sensitive paths ({', '.join(touched[:5])}): a human must review", {"sensitive": touched}))
+        return GateReport(checks)
 
     # 1. Integrity ------------------------------------------------------------------------------
 
     def _integrity(self, changes: list[tuple[str, str]]) -> Check:
-        problems, added_tests = [], []
+        problems, added_tests, approved = [], [], []
         for status, rel in changes:
             name = norm(rel).split("/")[-1]
             if is_test_config(rel):
@@ -147,16 +155,20 @@ class Gate:
             elif is_test_file(rel):
                 if status == "A":
                     added_tests.append(rel)
+                elif self.policy.allow_test_changes:
+                    approved.append(rel)
                 else:
                     problems.append(f"{'deleted' if status == 'D' else 'changed'} existing test {rel}")
             elif rel.endswith(".py") and status != "D":
                 hits = [l for l in self.ws.added_lines(rel) if UNDER_TEST.search(l)]
                 if hits:
                     problems.append(f"{rel} checks whether it is running under test or exits early: {hits[0].strip()[:80]}")
-        data = {"added_tests": added_tests, "problems": problems}
+        data = {"added_tests": added_tests, "problems": problems, "test_changes_allowed_by_policy": approved}
         if problems:
             return Check("integrity", FAIL, "; ".join(problems), data)
         note = f" ({len(added_tests)} new test file(s) added)" if added_tests else ""
+        if approved:
+            note += f"; {len(approved)} existing test(s) changed, allowed by policy: {', '.join(approved[:5])}"
         return Check("integrity", PASS, f"no existing tests, test configuration or CI changed{note}", data)
 
     def _current(self, rel: str) -> str | None:
@@ -247,8 +259,10 @@ class Gate:
         return dest
 
     def _must_restore(self, status: str, rel: str) -> bool:
-        if is_test_config(rel) or is_ci_config(rel) or (is_test_file(rel) and status != "A"):
+        if is_test_config(rel) or is_ci_config(rel):
             return True
+        if is_test_file(rel) and status != "A":
+            return not self.policy.allow_test_changes
         name = norm(rel).split("/")[-1]
         return name in ("pyproject.toml", "setup.cfg") and _pytest_section(name, self.ws.baseline_file(rel)) != _pytest_section(name, self._current(rel))
 

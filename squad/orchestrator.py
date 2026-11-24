@@ -17,6 +17,7 @@ from .blackboard import Blackboard
 from .config import config_path, load_config
 from .draft import Draft, Pick, draft
 from .gate import FAIL, PASS, UNVERIFIED, Gate, GateReport
+from .policy import POLICY_FILE, parse
 from .llm import LLM
 from .mcp_host import MCPHost
 from .models import AgentRun, MatchResult, Ticket
@@ -105,7 +106,9 @@ class Match:
             copy_project(self.project or SANDBOX_DIR / ticket.sandbox, workspace_dir)
             Workspace(workspace_dir).init_repo()
         await host.connect("workspace", server_params("workspace", SQUAD_WORKSPACE=str(workspace_dir)))
-        self.gate = Gate(workspace_dir, hidden_tests=self.hidden_tests)
+        # The project's policy, as it stood before any agent touched the copy.
+        policy = parse(Workspace(workspace_dir).baseline_file(POLICY_FILE), f"{POLICY_FILE} in {ticket.sandbox}")
+        self.gate = Gate(workspace_dir, hidden_tests=self.hidden_tests, policy=policy)
         self.workspace_dir = workspace_dir
 
         trace = Trace(run_dir / "trace.jsonl")
