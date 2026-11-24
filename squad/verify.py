@@ -4,6 +4,7 @@ It rebuilds the change in a private working copy, with the base commit as the ba
 Nothing in the user's repo is modified, and the repo's own git hooks and config never run.
 """
 
+import dataclasses
 import fnmatch
 import shutil
 import tarfile
@@ -123,11 +124,17 @@ def _digests(ws: Path, changes: list[tuple[str, str]]) -> tuple[dict[str, str], 
     return changed, tree.hexdigest()
 
 
-def verify(repo: Path, *, base: str | None = None, head: str | None = None, hidden: Path | None = None, network: str | None = None) -> Verification:
+def verify(
+    repo: Path, *, base: str | None = None, head: str | None = None, hidden: Path | None = None, network: str | None = None,
+    approve_test_changes: str | None = None,
+) -> Verification:
     repo = Path(repo).resolve()
     sha, base_label, head_label = resolve(repo, base, head)
     # The rules come from the base commit: the change being judged cannot rewrite them.
     policy = parse(Workspace(repo).baseline_file_at(sha, POLICY_FILE), f"{POLICY_FILE} at {sha[:10]}")
+    if approve_test_changes:
+        # A human said yes to this change's test edits (e.g. a maintainer's PR label). It is recorded, not implied.
+        policy = dataclasses.replace(policy, allow_test_changes=True, source=f"{policy.source}; test changes approved by {approve_test_changes}")
     result = Verification(str(repo), sha, base_label, head_label, policy=policy)
     with tempfile.TemporaryDirectory(prefix="agentic-verify-") as scratch:
         ws = build(repo, sha, head, Path(scratch))

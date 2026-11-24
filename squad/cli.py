@@ -151,7 +151,7 @@ def _verify(args) -> int:
 
     try:
         result = verify(Path(args.repo), base=args.base, head=args.head, hidden=Path(args.hidden) if args.hidden else None,
-                        network="loopback" if args.loopback else None)
+                        network="loopback" if args.loopback else None, approve_test_changes=args.approve_test_changes)
     except (VerifyError, PolicyError) as err:
         print(f"agentic verify: {err}", file=sys.stderr)
         return 3
@@ -232,6 +232,7 @@ def main(argv: list[str] | None = None) -> int:
     ver.add_argument("--predicate", help="write only the attestation predicate (for actions/attest) to this file")
     ver.add_argument("--subject", help="subject name for the attestation (default: the repo path)")
     ver.add_argument("--summary-md", help="append a markdown summary to this file (e.g. $GITHUB_STEP_SUMMARY)")
+    ver.add_argument("--approve-test-changes", metavar="WHO", help="a human approved this change's edits to existing tests; recorded in the evidence")
     ver.add_argument("--loopback", action="store_true", help="let tests use localhost (never the internet); for suites that start local servers")
     ver.add_argument("--repo", default=".", help="repository to verify (default: current folder)")
     ver.add_argument("-q", "--quiet", action="store_true")

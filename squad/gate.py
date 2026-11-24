@@ -326,6 +326,12 @@ class Gate:
             shutil.copytree(self.hidden_tests, dest / HIDDEN_DIR)
         return dest
 
+    def _approved_modules(self) -> set[str]:
+        """Dotted module names of test files a human approved changing (their old tests may legitimately go)."""
+        if not self.policy.allow_test_changes:
+            return set()
+        return {rel[:-3].replace("/", ".") for status, rel in self.ws.changes() if is_test_file(rel) and status != "A"}
+
     def _must_restore(self, status: str, rel: str) -> bool:
         if is_test_config(rel) or is_ci_config(rel):
             return True
@@ -339,7 +345,8 @@ class Gate:
 
     def _pytest(self, root: Path) -> TestRun:
         report = root / ".squad-junit.xml"
-        cmd = sandbox.pytest_command(root, "-q", f"--junitxml={report}", "-o", "junit_family=xunit2")
+        # One original test file that no longer imports must not hide every other test's result.
+        cmd = sandbox.pytest_command(root, "-q", "--continue-on-collection-errors", f"--junitxml={report}", "-o", "junit_family=xunit2")
         result = sandbox.run(cmd, root, timeout=self.timeout, network=self.network)
         if not report.is_file():
             return TestRun({}, result.exit_code, result.output[-3000:], reported=False)
@@ -366,9 +373,10 @@ class Gate:
         skipped = self._visible(now.ids("skipped"))
         before_fail = baseline.ids("failed", "error") if baseline else set()
         before_pass = baseline.ids("passed") if baseline else set()
+        approved = self._approved_modules()
         new_failures = sorted(failing - before_fail)
-        vanished = sorted(before_pass - set(now.outcomes))
-        newly_skipped = sorted(before_pass & skipped)
+        vanished = sorted(t for t in before_pass - set(now.outcomes) if not _in_modules(t, approved))
+        newly_skipped = sorted(t for t in before_pass & skipped if not _in_modules(t, approved))
         data.update(ran=len(ran), failed=len(failing), skipped=len(skipped), preexisting_failures=len(failing & before_fail),
                     new_failures=new_failures, vanished=vanished, newly_skipped=newly_skipped)
         problems = []
@@ -405,6 +413,11 @@ class Gate:
         if failing:
             return Check("hidden-tests", FAIL, f"{len(failing)} of {len(ran)} hidden test(s) fail", data)
         return Check("hidden-tests", PASS, f"{len(ran)} hidden test(s) pass", data)
+
+
+def _in_modules(test_id: str, modules: set[str]) -> bool:
+    module = test_id.split("::", 1)[0]
+    return any(module == m or module.startswith(m + ".") for m in modules)
 
 
 def _sha256(path: Path) -> str:

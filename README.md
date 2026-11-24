@@ -52,6 +52,8 @@ allow_preexisting_failures = false  # true: tests already failing before the cha
 
 The policy is read from the **base** commit, so a change cannot loosen the rules that judge it, and editing the file counts as tampering.
 
+When a change *should* edit existing tests (a wrong assertion, a removed feature), a maintainer approves it by adding the label `agentic:approved-test-changes` to the pull request (`agentic verify --approve-test-changes "<who>"` locally). The gate then runs the edited tests instead of the originals and records who approved it in the evidence. An agent cannot approve its own test edits. This repo's own PRs go through the same path.
+
 ## How it works
 
 The author (FORGE) makes the change in a copy of your project. If Claude Code is installed and logged in, FORGE **is** Claude Code: one session per working copy (so retries and follow-ups keep context), with its real Read, Edit, Grep and Glob tools, and with no shell, no web access and no MCP servers, so it can edit files and nothing else. Otherwise a built-in agent fills the seat. Set `"author": "squad" | "claude-code"` in `squad.config.json` to choose. Then **WARDEN, the deterministic gate** (`squad/gate.py`), decides. It is code, not a model, and the author cannot talk it round:

@@ -74,3 +74,14 @@ def test_cli_exit_codes_follow_the_verdict(repo, monkeypatch, capsys):
     assert main(["verify", "-q", "--json", str(repo.parent / "r.json")]) == 1
     assert '"verdict": "FAIL"' in (repo.parent / "r.json").read_text()
     assert main(["verify", "--base", "no-such-ref"]) == 3
+
+
+def test_a_human_can_approve_test_changes_and_the_approval_is_recorded(repo):
+    (repo / "tests" / "test_old.py").write_text("def test_old():\n    assert True\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "old test")
+    (repo / "tests" / "test_old.py").unlink()  # a feature removed along with its test
+    (repo / "tests" / "test_calc.py").write_text("from calc import add\n\ndef test_add():\n    assert add(2, 3) == 5 and add(0, 0) == 0\n")
+    assert verify(repo).report.verdict == "FAIL"
+    approved = verify(repo, approve_test_changes="a maintainer")
+    assert approved.report.verdict == "PASS" and "approved by a maintainer" in approved.policy.source
