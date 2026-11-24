@@ -1,6 +1,7 @@
 """The sandboxed working copy that agents read and edit through the workspace MCP server."""
 
 import ast
+import fnmatch
 import os
 import shutil
 import re
@@ -11,6 +12,7 @@ from pathlib import Path
 from mcp.server.mcpserver.exceptions import ToolError
 
 MAX_READ_BYTES = 100_000
+READ_LINES = 2000
 SKIP_DIRS = {".git", "__pycache__", ".pytest_cache"}
 PROTECTED_DIRS = {"tests"}
 MONEY_FUNCTIONS = {"refund", "charge", "transfer", "payout"}
@@ -69,25 +71,67 @@ class Workspace:
             if p.is_file() and not SKIP_DIRS & set(p.relative_to(self.root).parts)
         )
 
-    def read_file(self, path: str) -> str:
+    def read_file(self, path: str, offset: int = 1, limit: int = READ_LINES) -> str:
+        """Numbered lines from `offset` (1-based). Says plainly when there is more, so nothing is cut silently."""
         target = self._resolve(path)
         if not target.is_file():
             raise WorkspaceError(f"no such file: {path}")
-        if target.stat().st_size > MAX_READ_BYTES:
+        if target.stat().st_size > MAX_READ_BYTES * 20:
             raise WorkspaceError(f"file too large to read: {path}")
-        return target.read_text()
+        lines = target.read_text(errors="replace").splitlines()
+        start = max(offset, 1) - 1
+        chunk = lines[start:start + limit]
+        body = "\n".join(f"{n:>5}\t{line}" for n, line in enumerate(chunk, start + 1))
+        rest = len(lines) - (start + len(chunk))
+        return body + (f"\n[{rest} more line(s): read_file with offset={start + len(chunk) + 1}]" if rest > 0 else "")
 
-    def write_file(self, path: str, content: str) -> str:
+    def edit_file(self, path: str, old: str, new: str) -> str:
+        """Replace one exact, unique occurrence of `old`. Safer than rewriting a whole file."""
+        target = self._resolve(path)
+        if not target.is_file():
+            raise WorkspaceError(f"no such file: {path}; use write_file to create it")
+        text = target.read_text()
+        count = text.count(old) if old else 0
+        if count != 1:
+            raise WorkspaceError(f"old text found {count} times in {path}; it must match exactly once (include more context)")
+        self._guard(path)
+        target.write_text(text.replace(old, new, 1))
+        return f"edited {path}"
+
+    def grep(self, pattern: str, glob: str = "**/*", limit: int = 100) -> str:
+        try:
+            regex = re.compile(pattern)
+        except re.error as err:
+            raise WorkspaceError(f"bad pattern: {err}")
+        hits = []
+        for rel in self.glob(glob):
+            try:
+                for n, line in enumerate((self.root / rel).read_text().splitlines(), 1):
+                    if regex.search(line):
+                        hits.append(f"{rel}:{n}: {line.strip()[:200]}")
+                        if len(hits) >= limit:
+                            return "\n".join(hits) + f"\n[stopped at {limit} matches: narrow the pattern or glob]"
+            except (UnicodeDecodeError, OSError):
+                continue
+        return "\n".join(hits) or "(no matches)"
+
+    def glob(self, pattern: str) -> list[str]:
+        return [f for f in self.list_files() if Path(f).match(pattern) or fnmatch.fnmatch(f, pattern)]
+
+    def _guard(self, path: str) -> None:
         from .gate import is_ci_config, is_protected, is_test_config, norm
 
-        target = self._resolve(path)
-        rel = str(target.relative_to(self.root))
+        rel = str(self._resolve(path).relative_to(self.root))
         if any(part.lower() == ".git" for part in Path(rel).parts):
             raise WorkspaceError("the .git directory is off limits")
         if is_test_config(rel) or is_ci_config(rel):
             raise WorkspaceError(f"{rel} controls how tests or CI run; agents may not create or change it")
         if is_protected(rel) and norm(rel) in self._baseline_protected():
             raise WorkspaceError(f"{rel} is an existing test and is read-only. Add new tests in a new file instead.")
+
+    def write_file(self, path: str, content: str) -> str:
+        target = self._resolve(path)
+        self._guard(path)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content)
         return f"wrote {len(content)} chars to {path}"

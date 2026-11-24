@@ -18,15 +18,34 @@ def list_files() -> list[str]:
 
 
 @server.tool()
-def read_file(path: str) -> str:
-    """Read a text file from the workspace."""
-    return ws.read_file(path)
+def read_file(path: str, offset: int = 1, limit: int = 2000) -> str:
+    """Read a text file as numbered lines (number, tab, text). Long files say how to read the rest."""
+    return ws.read_file(path, offset, limit)
+
+
+@server.tool()
+def edit_file(path: str, old: str, new: str) -> str:
+    """Replace one exact occurrence of `old` with `new` in a file. `old` must match exactly once and must not
+    include the line-number prefix from read_file. Prefer this to write_file for changing existing files."""
+    return ws.edit_file(path, old, new)
 
 
 @server.tool()
 def write_file(path: str, content: str) -> str:
-    """Create or overwrite a file. The tests/ directory is read-only."""
+    """Create a new file, or replace a whole file. Existing tests, test configuration and CI are read-only."""
     return ws.write_file(path, content)
+
+
+@server.tool()
+def grep(pattern: str, glob: str = "**/*") -> str:
+    """Search file contents with a regular expression; returns path:line: text. Narrow with a glob like '**/*.py'."""
+    return ws.grep(pattern, glob)
+
+
+@server.tool()
+def glob(pattern: str) -> list[str]:
+    """List files matching a glob pattern such as '**/*.py' or 'src/**/test_*.py'."""
+    return ws.glob(pattern)
 
 
 @server.tool()

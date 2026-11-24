@@ -172,7 +172,7 @@ class Gate:
         note = f" ({len(added_tests)} new test file(s) added)" if added_tests else ""
         if approved:
             note += f"; {len(approved)} existing test(s) changed, allowed by policy: {', '.join(approved[:5])}"
-        return Check("integrity", PASS, f"no existing tests, test configuration or CI changed{note}", data)
+        return Check("integrity", PASS, f"no existing tests or test configuration changed{note}", data)
 
     def _current(self, rel: str) -> str | None:
         path = self.ws.root / rel

@@ -6,7 +6,7 @@ from contextlib import AsyncExitStack
 from mcp import Client, StdioServerParameters
 
 NAMESPACE_SEP = "__"
-MAX_RESULT_CHARS = 8000
+MAX_RESULT_CHARS = 30000
 
 
 class ToolCallError(Exception):
@@ -52,7 +52,9 @@ class MCPHost:
         text = "\n".join(c.text for c in result.content if getattr(c, "type", "") == "text")
         if result.is_error:
             raise ToolCallError(text or "tool failed")
-        return text[:MAX_RESULT_CHARS]
+        if len(text) > MAX_RESULT_CHARS:  # say so: a silent cut makes a model write back half a file
+            return text[:MAX_RESULT_CHARS] + f"\n[output truncated: {len(text) - MAX_RESULT_CHARS} more characters. Read a smaller range.]"
+        return text
 
     async def call_as(self, agent_name: str, allowed: set[str], qualified: str, args: dict) -> str:
         """Call a tool on behalf of an agent, enforcing that agent's abilities."""
