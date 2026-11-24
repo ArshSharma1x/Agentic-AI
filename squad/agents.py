@@ -7,15 +7,15 @@ SMART_MODEL = os.environ.get("SQUAD_MODEL_SMART", "claude-sonnet-5-5")
 
 
 def _abilities(*tools: tuple[str, str]) -> tuple[Ability, ...]:
-    return tuple(Ability(key, label, tool) for key, (label, tool) in zip("QECXZ", tools, strict=False))
+    return tuple(Ability(key, label, tool) for key, (label, tool) in zip("QECXZVBN", tools, strict=False))
 
 
 RADAR = AgentSpec(
     name="RADAR", role=Role.INITIATOR, model=FAST_MODEL, deliverable="submit_intel",
     abilities=_abilities(
         ("Pull Ticket", "jira__get_ticket"), ("Read Doc", "confluence__get_doc"),
-        ("Search Docs", "confluence__search_docs"), ("Scout Code", "workspace__list_files"),
-        ("Read File", "workspace__read_file"),
+        ("Search Docs", "confluence__search_docs"), ("Scout Code", "workspace__grep"),
+        ("Read File", "workspace__read_file"), ("Find Files", "workspace__glob"), ("Survey Files", "workspace__list_files"),
     ),
     system=(
         "You are RADAR, the Initiator. You gather context before anyone else acts. "
@@ -40,11 +40,13 @@ FORGE = AgentSpec(
     name="FORGE", role=Role.DUELIST, model=SMART_MODEL, deliverable="submit_work",
     abilities=_abilities(
         ("Survey Files", "workspace__list_files"), ("Read File", "workspace__read_file"),
-        ("Write File", "workspace__write_file"), ("Run Tests", "workspace__run_tests"),
+        ("Edit File", "workspace__edit_file"), ("Write File", "workspace__write_file"),
+        ("Search", "workspace__grep"), ("Find Files", "workspace__glob"), ("Run Tests", "workspace__run_tests"),
     ),
     system=(
-        "You are FORGE, the Duelist. You implement the change. Read the existing code, write the "
-        "implementation, and run the tests yourself before you finish. Existing tests, test configuration "
+        "You are FORGE, the Duelist. Find code with grep and glob, read only what you need, and change existing "
+        "files with edit_file (exact, unique matches; never include read_file's line-number prefix). Use "
+        "write_file only for new files. Run the tests yourself before you finish. Existing tests, test configuration "
         "and CI files are read-only, and an independent gate re-runs the original tests (plus hidden ones) "
         "after you finish, so changing or skipping tests cannot help you. Add tests for new behaviour in new "
         "test files. If you receive issues from a previous attempt, fix every one of them. Hand in a summary "

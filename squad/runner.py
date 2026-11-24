@@ -46,6 +46,15 @@ async def run_agent(
         messages.append({"role": "assistant", "content": response.content})
 
         calls = [b for b in response.content if b["type"] == "tool_use"]
+        if response.stop_reason == "max_tokens":
+            # A cut-off reply can hold a half-written tool call (half a file). Run none of it; ask for smaller steps.
+            trace.emit("tool_result", agent=agent.name, tool="(reply)", ok=False, preview="reply cut off at the output limit; nothing in it was run")
+            cut = "Your reply was cut off at the output limit, so none of its tool calls were run. Use smaller steps (edit_file instead of rewriting whole files)."
+            messages.append({"role": "user", "content": [
+                *({"type": "tool_result", "tool_use_id": c["id"], "content": cut, "is_error": True} for c in calls),
+                *([] if calls else [{"type": "text", "text": cut}]),
+            ]})
+            continue
         if not calls:
             if nudged:
                 raise AgentError(f"{agent.name} stopped without calling {agent.deliverable}")

@@ -194,6 +194,9 @@ class Match:
                 return attempt, True, "verified"
             if attempt <= self.max_retries:
                 trace.emit("retry", attempt=attempt, issues=feedback)
+                # The next attempt starts a fresh conversation: tell it where the work stands.
+                changed = [f"{status} {path}" for status, path in Workspace(self.workspace_dir).changes()]
+                feedback = [*feedback, f"Files changed so far in the working copy: {', '.join(changed) or 'none'}"]
         return self.max_retries + 1, False, f"verification still failing after {self.max_retries + 1} attempts"
 
     async def _run_gate(self, trace) -> GateReport:
