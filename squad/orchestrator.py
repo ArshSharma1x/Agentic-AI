@@ -16,6 +16,7 @@ from .agents import ROSTER
 from .blackboard import Blackboard
 from .config import config_path, load_config
 from .draft import Draft, Pick, draft
+from .gate import FAIL, PASS, UNVERIFIED, Gate, GateReport
 from .llm import LLM
 from .mcp_host import MCPHost
 from .models import AgentRun, MatchResult, Ticket
@@ -50,7 +51,7 @@ class Match:
         self, ticket_id: str, *, llm: LLM, autonomy: str = "semi", approve: Approver | None = None,
         runs_dir: Path = RUNS_DIR, max_retries: int = 2, listeners=(),
         ticket: Ticket | None = None, project: Path | None = None, squad_draft: Draft | None = None,
-        workspace: Path | None = None,
+        workspace: Path | None = None, hidden_tests: Path | None = None,
     ) -> None:
         if autonomy not in AUTONOMY_LEVELS:
             raise ValueError(f"autonomy must be one of {AUTONOMY_LEVELS}")
@@ -60,7 +61,9 @@ class Match:
         # An ad-hoc ticket, a project folder to work on, and a ready-made squad all skip the lookup/draft defaults.
         self.ticket, self.project, self.squad_draft = ticket, project, squad_draft
         self.workspace = workspace  # a session's long-lived working copy: created on first use, reused after
+        self.hidden_tests = hidden_tests  # tests the author never sees; only the gate runs them
         self.answer = ""
+        self.verdict: str | None = None  # the gate's verdict on the last attempt, when there was one
         self.runs: list[AgentRun] = []
 
     async def run(self) -> MatchResult:
@@ -100,6 +103,7 @@ class Match:
             copy_project(self.project or SANDBOX_DIR / ticket.sandbox, workspace_dir)
             Workspace(workspace_dir).init_repo()
         await host.connect("workspace", server_params("workspace", SQUAD_WORKSPACE=str(workspace_dir)))
+        self.gate = Gate(workspace_dir, hidden_tests=self.hidden_tests)
 
         trace = Trace(run_dir / "trace.jsonl")
         trace.listeners.extend(self.listeners)
@@ -116,22 +120,33 @@ class Match:
         attempts, commit, success, reason = 0, None, False, ""
         try:
             attempts, success, reason = await self._play(ticket, names, host, board, trace)
-            if success and "FORGE" in names:
-                if await self._gate(trace, f"Commit the changes for {ticket.id} in the working copy (your folder is not touched)?", commit=True):
-                    commit = await host.call("workspace__git_commit", {"message": f"{ticket.id}: {ticket.title}"})
-                    trace.emit("commit", sha=commit)
-                    reason = "verified and committed"
-                else:
-                    reason = "verified, but the commit was not approved (changes are left in the workspace)"
+            if "FORGE" in names and self.verdict in (PASS, UNVERIFIED) and success is not False:
+                commit, reason = await self._commit(ticket, host, trace, reason)
         except AgentError as err:
             success, reason = False, str(err)
 
         stats = self._stats(started, attempts)
-        trace.emit("match_end", success=success, reason=reason, attempts=attempts, commit=commit, answer=self.answer, workspace=str(workspace_dir), **stats)
+        trace.emit("match_end", success=success, verdict=self.verdict, reason=reason, attempts=attempts, commit=commit, answer=self.answer, workspace=str(workspace_dir), **stats)
         return MatchResult(
             success=success, ticket_id=ticket.id, squad=names, attempts=attempts, commit=commit,
             reason=reason, run_dir=str(run_dir), trace_path=str(trace.path), stats=stats, answer=self.answer,
+            verdict=self.verdict,
         )
+
+    async def _commit(self, ticket, host, trace, reason) -> tuple[str | None, str]:
+        """PASS commits on the usual approval. UNVERIFIED never commits on its own: a human must accept the risk."""
+        where = "in the working copy (your folder is not touched)"
+        if self.verdict == UNVERIFIED:
+            question = f"The gate could not verify {ticket.id} ({reason}). Commit it anyway {where}?"
+            approved = bool(self.autonomy != "full" and self.approve and await self.approve(question))
+            trace.emit("approval", question=question, approved=approved, autonomy=self.autonomy)
+            if not approved:
+                return None, f"unverified, not committed: {reason}"
+        elif not await self._gate(trace, f"Commit the changes for {ticket.id} {where}?", commit=True):
+            return None, "verified, but the commit was not approved (changes are left in the workspace)"
+        sha = await host.call("workspace__git_commit", {"message": f"{ticket.id}: {ticket.title}"})
+        trace.emit("commit", sha=sha)
+        return sha, "verified and committed" if self.verdict == PASS else "unverified, committed on your approval"
 
     async def _play(self, ticket, squad, host, board, trace) -> tuple[int, bool, str]:
         if not await self._gate(trace, "Start the intel phase?", phase=True):
@@ -148,9 +163,9 @@ class Match:
         else:
             board.write("plan", {"criteria": list(ticket.acceptance_criteria), "steps": []}, "ticket")
 
-        sentinels = [n for n in squad if ROSTER[n].role.value == "Sentinel"]
+        reviewers = [n for n in squad if n == "AEGIS"]  # model reviewers; WARDEN is the deterministic gate, not a model
         if "FORGE" not in squad:
-            return await self._without_forge(ticket, squad, sentinels, host, board, trace)
+            return await self._without_forge(ticket, squad, reviewers, host, board, trace)
 
         feedback: list[str] = []
         for attempt in range(1, self.max_retries + 2):
@@ -159,35 +174,57 @@ class Match:
             trace.emit("phase", name="execute", attempt=attempt)
             board.write("work", (await self._agent("FORGE", ticket, board, host, trace, "execute", attempt, feedback)).deliverable, "FORGE")
 
-            feedback = await self._verify(sentinels, ticket, board, host, trace, attempt)
+            # The gate always runs after FORGE, whatever the squad: nothing ships on the author's word.
+            trace.emit("phase", name="verify", attempt=attempt)
+            report = await self._run_gate(trace)
+            feedback = [f"WARDEN: {i}" for i in report.issues]
+            if not feedback and reviewers:
+                feedback = await self._review(reviewers, ticket, board, host, trace, attempt)
             if not feedback:
                 self.answer = board.snapshot()["work"].get("summary", "")
+                if report.verdict == UNVERIFIED:
+                    return attempt, True, "; ".join(report.unverified)
                 return attempt, True, "verified"
             if attempt <= self.max_retries:
                 trace.emit("retry", attempt=attempt, issues=feedback)
         return self.max_retries + 1, False, f"verification still failing after {self.max_retries + 1} attempts"
 
-    async def _without_forge(self, ticket, squad, sentinels, host, board, trace) -> tuple[int, bool, str]:
+    async def _run_gate(self, trace) -> GateReport:
+        report = await asyncio.to_thread(self.gate.run)
+        self.verdict = report.verdict
+        trace.emit("gate", agent="WARDEN", **report.to_dict())
+        return report
+
+    async def _without_forge(self, ticket, squad, reviewers, host, board, trace) -> tuple[int, bool, str]:
         """Squads with no Duelist change nothing: they answer, plan or review. Findings are the result, not a defeat."""
         issues: list[str] = []
-        if sentinels:
-            issues = await self._verify(sentinels, ticket, board, host, trace, 1)
+        if "WARDEN" in squad or reviewers:
+            trace.emit("phase", name="verify", attempt=1)
+        if "WARDEN" in squad:
+            report = await self._run_gate(trace)
+            tests = next((c for c in report.checks if c.name == "tests"), None)
+            if tests and tests.data.get("failed"):
+                issues.append(f"WARDEN: {tests.data['failed']} test(s) fail as the code stands")
+            issues += [f"WARDEN: {i}" for i in report.issues + report.unverified]
+        if reviewers:
+            issues += await self._review(reviewers, ticket, board, host, trace, 1)
         snap = board.snapshot()
         parts: list[str] = []
         if intel := snap.get("intel"):
             parts += [intel["summary"], *[f"- {f}" for f in intel["key_facts"]]]
         if "ATLAS" in squad and (plan := snap.get("plan")):
             parts += ["Plan:", *[f"- {c}" for c in plan["criteria"]], *[f"{n}. {x}" for n, x in enumerate(plan["steps"], 1)]]
-        if sentinels:
+        checked = "WARDEN" in squad or reviewers
+        if checked:
             parts += [f"{len(issues)} finding(s):", *[f"- {i}" for i in issues]] if issues else ["No issues found."]
         self.answer = "\n".join(parts)
-        if sentinels:
+        if checked:
             return 1, True, f"reviewed: {len(issues)} issue(s) found" if issues else "reviewed: clean"
         return 0, True, "planned" if "ATLAS" in squad else "answered"
 
-    async def _verify(self, sentinels, ticket, board, host, trace, attempt) -> list[str]:
-        trace.emit("phase", name="verify", attempt=attempt)
-        runs = await asyncio.gather(*(self._agent(n, ticket, board, host, trace, "verify", attempt, []) for n in sentinels))
+    async def _review(self, reviewers, ticket, board, host, trace, attempt) -> list[str]:
+        """Model reviewers can only add findings; they can never turn a failed gate into a pass."""
+        runs = await asyncio.gather(*(self._agent(n, ticket, board, host, trace, "verify", attempt, []) for n in reviewers))
         feedback: list[str] = []
         for run in runs:
             passed, issues = run.deliverable["passed"], run.deliverable["issues"]

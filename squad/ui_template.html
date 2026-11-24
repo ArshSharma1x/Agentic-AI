@@ -94,6 +94,7 @@ function frame(upto) {
       case "tool_result": line(e.ok?"":"bad","", (e.ok?"-> ":"!! ")+short(e.preview)); break;
       case "agent_done": st.tokens += e.input_tokens + e.output_tokens; if (st.active===e.agent) st.active = null; break;
       case "verdict": st.verdicts[e.agent] = e.passed; line(e.passed?"good":"bad", e.agent, "verdict "+(e.passed?"PASS":"FAIL")); e.issues.forEach(x => line("bad","", "- "+short(x,140))); break;
+      case "gate": st.verdicts[e.agent] = e.verdict; line(e.verdict==="FAIL"?"bad":e.verdict==="PASS"?"good":"sys", e.agent, "gate "+e.verdict); e.checks.forEach(c => line(c.status==="FAIL"?"bad":"", "", `${c.status==="PASS"?"ok":c.status==="FAIL"?"!!":"??"} ${c.name}: ${short(c.detail,120)}`)); break;
       case "retry": st.verdicts = {}; line("sys","", `RETRY: attempt ${e.attempt} rejected, ${e.issues.length} issue(s) sent back to FORGE`); break;
       case "approval_request": st.pending = e.question; break;
       case "approval": st.pending = null; line("sys","", `APPROVAL ${e.question} -> ${e.approved?"yes":"no"}`); break;
@@ -115,7 +116,8 @@ function draw(i) {
   $("phases").innerHTML = PHASES.map(p => `<div class="chip ${s.phase===p?"on":s.done.has(p)?"done":""}">${p}</div>`).join("");
   const all = [...s.picks.map(p=>({...p,on:true})), ...s.skipped.map(p=>({...p,on:false}))];
   $("agents").innerHTML = all.map(p => {
-    const v = s.verdicts[p.agent], tag = v===undefined ? "" : `<span class="tag ${v?"pass":"fail"}">${v?"PASS":"FAIL"}</span>`;
+    const raw = s.verdicts[p.agent], v = raw===undefined ? undefined : typeof raw === "string" ? raw : raw ? "PASS" : "FAIL";
+    const tag = v===undefined ? "" : `<span class="tag ${v==="PASS"?"pass":"fail"}">${v}</span>`;
     const ab = (ROSTER[p.agent]?.abilities||[]).map(([k,l]) => `<i><b>${k}</b> ${esc(l)}</i>`).join("");
     return `<div class="card ${p.on?(s.active===p.agent?"active":""):"benched"}" style="--c:${col(p.agent)}"><div class="name">${p.agent}</div><div class="role">${ROLE[p.agent]||""}${p.on?"":" (benched)"}</div><div class="why">${esc(p.reason)}</div><div class="abil">${ab}</div>${tag}</div>`;
   }).join("");

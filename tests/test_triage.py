@@ -52,7 +52,7 @@ def test_a_question_runs_a_one_agent_match_and_reads_the_project(tmp_path):
 def test_a_review_squad_reports_findings_without_changing_or_committing(tmp_path):
     result = play("Run the tests", tmp_path)
     assert result.success and result.squad == ["WARDEN"] and result.commit is None
-    assert "8 issue(s) found" in result.reason
+    assert "8 test(s) fail as the code stands" in result.answer
 
 
 class FakeModel:

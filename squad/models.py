@@ -76,3 +76,4 @@ class MatchResult:
     trace_path: str
     stats: dict = field(default_factory=dict)
     answer: str = ""
+    verdict: str | None = None  # PASS, FAIL or UNVERIFIED from the deterministic gate
