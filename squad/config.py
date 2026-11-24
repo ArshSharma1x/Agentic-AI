@@ -19,6 +19,7 @@ class Config:
     api_key: str | None = None
     mcp_servers: dict = field(default_factory=dict)
     provider: str = "auto"  # auto, api or claude-code
+    author: str = "auto"  # who writes code: auto (Claude Code if logged in), squad (built-in agent) or claude-code
 
 
 def config_path() -> Path:
@@ -44,4 +45,7 @@ def load_config(path: Path | None = None) -> Config:
     provider = raw.get("provider", "auto")
     if provider not in ("auto", "api", "claude-code"):
         raise ConfigError(f"{path}: provider must be auto, api or claude-code")
-    return Config(api_key=key, mcp_servers=servers, provider=provider)
+    author = raw.get("author", "auto")
+    if author not in ("auto", "squad", "claude-code"):
+        raise ConfigError(f"{path}: author must be auto, squad or claude-code")
+    return Config(api_key=key, mcp_servers=servers, provider=provider, author=author)
