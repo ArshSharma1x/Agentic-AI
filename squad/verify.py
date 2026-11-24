@@ -103,6 +103,7 @@ def build(repo: Path, base: str, head: str | None, dest: Path) -> Path:
             shutil.rmtree(child) if child.is_dir() and not child.is_symlink() else child.unlink()
     if head:
         _extract(repo, head, ws)
+        Workspace(ws)._git("read-tree", "HEAD")
         return ws
     listed = _git(repo, "ls-files", "-co", "--exclude-standard").splitlines()
     for rel in listed:
@@ -111,7 +112,9 @@ def build(repo: Path, base: str, head: str | None, dest: Path) -> Path:
             continue  # deleted in the working tree, or a secrets file the gate never needs
         target = ws / rel
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, target, follow_symlinks=False)
+        shutil.copy(source, target, follow_symlinks=False)  # fresh timestamps: old ones can hide same-size edits from git
+    # Drop the index's cached file stats so git compares contents, never timestamps ("racy clean" files).
+    Workspace(ws)._git("read-tree", "HEAD")
     return ws
 
 

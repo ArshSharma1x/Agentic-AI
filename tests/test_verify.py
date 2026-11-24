@@ -85,3 +85,11 @@ def test_a_human_can_approve_test_changes_and_the_approval_is_recorded(repo):
     assert verify(repo).report.verdict == "FAIL"
     approved = verify(repo, approve_test_changes="a maintainer")
     assert approved.report.verdict == "PASS" and "approved by a maintainer" in approved.policy.source
+
+
+def test_a_same_size_edit_in_the_same_second_is_never_missed(repo):
+    # Same length, written immediately after the commit: invisible to a timestamp-and-size check.
+    for _ in range(5):
+        (repo / "calc.py").write_text(GOOD.replace("a + b", "a - b"))
+        assert ("M", "calc.py") in verify(repo).changes
+        (repo / "calc.py").write_text(GOOD)
