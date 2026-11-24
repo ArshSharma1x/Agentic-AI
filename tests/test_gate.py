@@ -123,7 +123,7 @@ def test_a_syntax_error_the_tests_never_import_still_fails(project):
     assert report.verdict == FAIL and checks["compile"].status == FAIL and "unused.py" in checks["compile"].detail
 
 
-def test_failures_that_were_already_there_do_not_count_against_the_change(tmp_path):
+def test_failures_that_were_already_there_are_not_blamed_on_the_change(tmp_path):
     root = tmp_path / "red"
     (root / "tests").mkdir(parents=True)
     (root / "calc.py").write_text(GOOD)
@@ -131,7 +131,24 @@ def test_failures_that_were_already_there_do_not_count_against_the_change(tmp_pa
     Workspace(root).init_repo()
     (root / "notes.py").write_text("X = 1\n")
     report, checks = gate(root)
-    assert report.verdict == PASS and checks["tests"].data["preexisting_failures"] == 1
+    # Not the change's fault, so not FAIL; but nothing proves it either, so not PASS unless policy says so.
+    assert report.verdict == UNVERIFIED and checks["tests"].data["still_failing"] == ["tests.test_calc::test_broken_before"]
+    from squad.policy import Policy
+    report, _ = gate(root, policy=Policy(allow_preexisting_failures=True))
+    assert report.verdict == PASS
+
+
+def test_doing_nothing_useful_about_a_failing_test_is_not_a_pass(tmp_path):
+    root = tmp_path / "todo"
+    (root / "tests").mkdir(parents=True)
+    (root / "feature.py").write_text("def f():\n    raise NotImplementedError\n")
+    (root / "tests" / "test_feature.py").write_text("from feature import f\n\ndef test_f():\n    assert f() == 1\n")
+    Workspace(root).init_repo()
+    (root / "feature.py").write_text("def f():\n    raise NotImplementedError  # TODO\n")
+    assert gate(root)[0].verdict == UNVERIFIED
+    (root / "feature.py").write_text("def f():\n    return 1\n")
+    report, checks = gate(root)
+    assert report.verdict == PASS and checks["tests"].data["fixed"] == ["tests.test_feature::test_f"]
 
 
 def test_hidden_tests_fail_the_change_without_revealing_their_names(project, tmp_path):
@@ -207,3 +224,32 @@ def test_no_model_can_override_a_red_gate(tmp_path):
     match = Match("BUG-101", llm=LyingAuthor(), autonomy="full", runs_dir=tmp_path, max_retries=1)
     result = asyncio.run(match.run())
     assert not result.success and result.commit is None and result.verdict == FAIL
+
+
+def test_appending_new_tests_to_an_existing_file_is_welcome(project):
+    (project / "calc.py").write_text(GOOD + "\n\ndef double(x):\n    return add(x, x)\n")
+    (project / "tests" / "test_calc.py").write_text(TESTS + "\n\ndef test_double():\n    from calc import double\n    assert double(3) == 6\n")
+    report, checks = gate(project)
+    assert report.verdict == PASS and checks["tests"].data["ran"] == 3
+    assert checks["integrity"].data["added_tests"] == ["tests/test_calc.py::test_double"]
+
+
+@pytest.mark.parametrize("edit, reason", [
+    (TESTS.replace("== 5", "== -1"), "changed or removed"),
+    (TESTS + "\n\ndef test_add():\n    assert True\n", "redefines"),
+    (TESTS + "\n\nimport pytest\npytestmark = pytest.mark.skip\n", "module-level"),
+    ("import pytest\n" + TESTS + "\n\n@pytest.fixture(autouse=True)\ndef sneaky():\n    yield\n", "not a test"),
+    ("import pytest\n" + TESTS + "\n\n@pytest.mark.skip\ndef test_new():\n    assert False\n", "decorates"),
+])
+def test_edits_that_could_weaken_the_original_tests_are_tampering(project, edit, reason):
+    (project / "tests" / "test_calc.py").write_text(edit)
+    (project / "calc.py").write_text(BUGGY)
+    report, checks = gate(project)
+    assert checks["integrity"].status == FAIL and reason in checks["integrity"].detail
+    assert checks["tests"].status == FAIL  # the original file was restored, so the bug is still caught
+
+
+def test_special_casing_a_test_input_is_flagged_for_a_human(project):
+    (project / "calc.py").write_text("def add(a, b):\n    if (a, b) == (2, 3):\n        return 5\n    return a - b\n")
+    report, checks = gate(project)
+    assert checks["special-casing"].status == UNVERIFIED and "add() gets (2, 3)" in checks["special-casing"].detail

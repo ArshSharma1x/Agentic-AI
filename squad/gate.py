@@ -11,6 +11,7 @@ Given a workspace with a git baseline, the gate:
 Verdicts: PASS, FAIL, or UNVERIFIED (nothing could prove the change works, e.g. there are no tests).
 """
 
+import ast
 import configparser
 import hashlib
 import json
@@ -62,6 +63,51 @@ def is_ci_config(rel: str) -> bool:
 
 def is_protected(rel: str) -> bool:
     return is_test_file(rel) or is_test_config(rel) or is_ci_config(rel)
+
+
+def test_file_edit(before: str | None, after: str | None) -> tuple[bool, str, list[str]]:
+    """(only additions?, reason if not, names of added tests) for an edited Python test file.
+
+    Appending new tests is welcome. Every original statement must survive unchanged (compared as syntax trees),
+    and the only new top-level code allowed is new test functions or classes and imports: no skip markers,
+    `pytestmark`, fixtures, or a second definition that silently replaces an original test.
+    """
+    if before is None or after is None:
+        return False, "deleted", []
+    try:
+        old, new = ast.parse(before), ast.parse(after)
+    except SyntaxError:
+        return False, "no longer parses", []
+    old_dumps = [ast.dump(n) for n in old.body]
+    new_dumps = [ast.dump(n) for n in new.body]
+    remaining = list(new_dumps)
+    for dump in old_dumps:
+        if dump not in remaining:
+            return False, "an original test or statement was changed or removed", []
+        remaining.remove(dump)
+    original_names = {getattr(n, "name", None) for n in old.body} - {None}
+    added = []
+    for node, dump in zip(new.body, new_dumps):
+        if dump in old_dumps:
+            continue
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            continue
+        name = getattr(node, "name", "")
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            return False, "new module-level code (it could change how the original tests run)", []
+        if name in original_names:
+            return False, f"redefines the original {name}", []
+        if not (name.startswith("test") or name.startswith("Test")):
+            return False, f"adds {name}, which is not a test (fixtures and helpers can change how the originals run)", []
+        if any(not _is_parametrize(d) for d in node.decorator_list):
+            return False, f"decorates the new {name} with something other than parametrize", []
+        added.append(name)
+    return True, "", added
+
+
+def _is_parametrize(decorator: ast.AST) -> bool:
+    target = decorator.func if isinstance(decorator, ast.Call) else decorator
+    return isinstance(target, ast.Attribute) and target.attr == "parametrize"
 
 
 def _pytest_section(name: str, text: str | None):
@@ -133,7 +179,7 @@ class Gate:
 
     def run(self) -> GateReport:
         changes = self.ws.changes()
-        checks = [self._integrity(changes), self._compile(changes), *self._tests(changes)]
+        checks = [self._integrity(changes), self._special_casing(changes), self._compile(changes), *self._tests(changes)]
         if self.policy.require_tests:
             checks = [Check(c.name, FAIL, c.detail + " (policy requires tests)", c.data) if c.name == "tests" and c.status == UNVERIFIED else c for c in checks]
         integrity = checks[0]
@@ -160,8 +206,12 @@ class Gate:
                     added_tests.append(rel)
                 elif self.policy.allow_test_changes:
                     approved.append(rel)
+                elif status == "M" and (verdict := test_file_edit(self.ws.baseline_file(rel), self._current(rel)))[0]:
+                    added_tests += [f"{rel}::{name}" for name in verdict[2]]  # new tests appended to an existing file
+                elif status == "D":
+                    problems.append(f"deleted existing test {rel}")
                 else:
-                    problems.append(f"{'deleted' if status == 'D' else 'changed'} existing test {rel}")
+                    problems.append(f"changed existing test {rel} ({test_file_edit(self.ws.baseline_file(rel), self._current(rel))[1]})")
             elif rel.endswith(".py") and status != "D":
                 hits = [l for l in self.ws.added_lines(rel) if UNDER_TEST.search(l)]
                 if hits:
@@ -173,6 +223,21 @@ class Gate:
         if approved:
             note += f"; {len(approved)} existing test(s) changed, allowed by policy: {', '.join(approved[:5])}"
         return Check("integrity", PASS, f"no existing tests or test configuration changed{note}", data)
+
+    def _special_casing(self, changes: list[tuple[str, str]]) -> Check:
+        """Source the change added that answers a test's exact inputs with its exact expected output."""
+        from .hardcoding import expectations, find
+
+        sources = [rel for status, rel in changes if status != "D" and rel.endswith(".py") and not is_test_file(rel)]
+        if not sources:
+            return Check("special-casing", PASS, "no source changes to check")
+        tests = [self.ws.baseline_file(f) or "" for f in self.ws.baseline_files() if is_test_file(f)]
+        wanted = expectations(tests)
+        hits = [h for rel in sources for h in find(self._current(rel) or "", rel, wanted, self.ws.added_line_numbers(rel))]
+        if hits:
+            return Check("special-casing", UNVERIFIED, "; ".join(h.describe() for h in hits[:3]) + ": a human should check this is not fitting the tests",
+                         {"hits": [h.describe() for h in hits]})
+        return Check("special-casing", PASS, f"no branch special-cases a test's inputs ({len(wanted)} assertion(s) checked)")
 
     def _current(self, rel: str) -> str | None:
         path = self.ws.root / rel
@@ -265,7 +330,10 @@ class Gate:
         if is_test_config(rel) or is_ci_config(rel):
             return True
         if is_test_file(rel) and status != "A":
-            return not self.policy.allow_test_changes
+            if self.policy.allow_test_changes:
+                return False
+            # Run a file that only gained tests as written, so the new tests count; restore anything else.
+            return not (status == "M" and test_file_edit(self.ws.baseline_file(rel), self._current(rel))[0])
         name = norm(rel).split("/")[-1]
         return name in ("pyproject.toml", "setup.cfg") and _pytest_section(name, self.ws.baseline_file(rel)) != _pytest_section(name, self._current(rel))
 
@@ -314,10 +382,17 @@ class Gate:
             problems.append(f"{len(newly_skipped)} test(s) that passed before are now skipped: {', '.join(newly_skipped[:5])}")
         if now.exit_code not in (0, 1):
             problems.append(f"pytest exited with code {now.exit_code} (interrupted or misconfigured)")
+        still = sorted(failing & before_fail)
+        fixed = sorted(before_fail - failing)
+        data.update(still_failing=still, fixed=fixed)
         if problems:
             return Check("tests", FAIL, "; ".join(problems), data)
-        pre = f"; {len(failing & before_fail)} failure(s) were already there before the change" if failing & before_fail else ""
-        return Check("tests", PASS, f"{len(ran)} original test(s) ran, none newly failing{pre}", data)
+        fixed_note = f", {len(fixed)} fixed" if fixed else ""
+        if still and not self.policy.allow_preexisting_failures:
+            # Not a regression, but not proof either: the change may simply not do what was asked.
+            return Check("tests", UNVERIFIED, f"{len(still)} test(s) that failed before still fail: {', '.join(still[:5])}{fixed_note}", data)
+        pre = f"; {len(still)} known failure(s) allowed by policy" if still else ""
+        return Check("tests", PASS, f"{len(ran)} original test(s) ran, none newly failing{fixed_note}{pre}", data)
 
     @staticmethod
     def _judge_hidden(now: TestRun) -> Check:

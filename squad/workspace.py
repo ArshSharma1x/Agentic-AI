@@ -180,6 +180,18 @@ class Workspace:
         with tarfile.open(fileobj=BytesIO(self._git_bytes("archive", self.baseline()))) as archive:
             archive.extractall(dest, filter="data")
 
+    def added_line_numbers(self, path: str) -> set[int]:
+        """Line numbers, in the current file, of lines the change added."""
+        self._git("add", "-A")
+        diff = self._git("diff", "--cached", "--no-renames", "--no-ext-diff", "-U0", self.baseline(), "--", path)
+        numbers: set[int] = set()
+        for line in diff.splitlines():
+            if line.startswith("@@"):
+                new = line.split("+", 1)[1].split(" ", 1)[0]
+                start, _, count = new.partition(",")
+                numbers.update(range(int(start), int(start) + int(count or 1)))
+        return numbers
+
     def added_lines(self, path: str) -> list[str]:
         self._git("add", "-A")
         diff = self._git("diff", "--cached", "--no-renames", "--no-ext-diff", self.baseline(), "--", path)
