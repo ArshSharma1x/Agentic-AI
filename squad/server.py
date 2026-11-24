@@ -53,14 +53,14 @@ class RunState:
         self.push({"type": "approval_request", "question": question})
         return await self.pending
 
-    async def play(self, prompt: str, project: Project, autonomy: str, llm, runs_dir: Path) -> None:
+    async def play(self, prompt: str, project: Project, autonomy: str, llm, runs_dir: Path, author=None) -> None:
         try:
             self.push({"type": "triaging"})
             plan = await triage_with_model(prompt, project.name, llm, files=overview(project.path))
             self.push({"type": "triage", "kind": plan.kind, "agents": plan.draft.names})
             match = Match(
                 plan.ticket.id, llm=llm, autonomy=autonomy, approve=self.approve, listeners=[self.push],
-                runs_dir=runs_dir, ticket=plan.ticket, project=project.path, squad_draft=plan.draft,
+                runs_dir=runs_dir, ticket=plan.ticket, project=project.path, squad_draft=plan.draft, author=author,
             )
             await match.run()
         except Exception as err:  # shown in the HUD instead of dying silently inside a background task
@@ -70,7 +70,17 @@ class RunState:
             self._wake()
 
 
-def create_app(projects: dict[str, Project], llm_provider: Callable[[], object | None] = llm_from_config, runs_dir: Path = RUNS_DIR) -> Starlette:
+def _default_author():
+    from .agents import SMART_MODEL
+    from .authors import author_from_config
+
+    return author_from_config(SMART_MODEL)
+
+
+def create_app(
+    projects: dict[str, Project], llm_provider: Callable[[], object | None] = llm_from_config, runs_dir: Path = RUNS_DIR,
+    author_provider: Callable[[], object | None] = _default_author,
+) -> Starlette:
     """`llm_provider` is called on every deploy, so a key added to squad.config.json works without a restart."""
     runs: dict[str, RunState] = {}
 
@@ -114,7 +124,7 @@ def create_app(projects: dict[str, Project], llm_provider: Callable[[], object |
             return JSONResponse({"error": "a match is already running"}, status_code=409)
         run, run_id = RunState(), uuid.uuid4().hex[:8]
         runs[run_id] = run
-        run.task = asyncio.create_task(run.play(prompt, projects[project], autonomy, llm, runs_dir))
+        run.task = asyncio.create_task(run.play(prompt, projects[project], autonomy, llm, runs_dir, author_provider()))
         return JSONResponse({"id": run_id})
     async def events(request: Request):
         run = runs.get(request.path_params["run_id"])

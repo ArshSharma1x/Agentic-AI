@@ -53,6 +53,13 @@ def _run(args) -> int:
     return 0 if result.success else 1
 
 
+def _author():
+    from .agents import SMART_MODEL
+    from .authors import author_from_config
+
+    return author_from_config(SMART_MODEL)
+
+
 def _replay(args) -> int:
     path = Path(args.trace)
     if not path.is_file():
@@ -76,7 +83,7 @@ def _ask_cmd(args) -> int:
     plan = asyncio.run(triage_with_model(args.prompt, name, llm, files=overview(projects[name].path)))
     match = Match(
         plan.ticket.id, llm=llm, autonomy=args.autonomy, approve=_ask, listeners=[_print_event],
-        ticket=plan.ticket, project=projects[name].path, squad_draft=plan.draft,
+        ticket=plan.ticket, project=projects[name].path, squad_draft=plan.draft, author=_author(),
     )
     result = asyncio.run(match.run())
     print(result.trace_path)
@@ -96,7 +103,10 @@ def _start(args) -> int:
         sys.exit(str(err))
     if llm is None:
         sys.exit(no_model_message())
-    return run_repl(Session(projects[name], llm, autonomy=args.autonomy))
+    from .agents import SMART_MODEL
+    from .authors import author_from_config
+
+    return run_repl(Session(projects[name], llm, autonomy=args.autonomy, author=author_from_config(SMART_MODEL)))
 
 
 def _web(args, projects) -> int:

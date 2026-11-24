@@ -15,7 +15,7 @@ from squad.server import RunState, create_app
 
 @pytest.fixture
 def base_url(tmp_path):
-    server = uvicorn.Server(uvicorn.Config(create_app(discover(demo=True), lambda: ScriptedLLM(), runs_dir=tmp_path), host="127.0.0.1", port=0, log_level="error"))
+    server = uvicorn.Server(uvicorn.Config(create_app(discover(demo=True), lambda: ScriptedLLM(), runs_dir=tmp_path, author_provider=lambda: None), host="127.0.0.1", port=0, log_level="error"))
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
     while not server.started:

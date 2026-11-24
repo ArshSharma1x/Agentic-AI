@@ -22,6 +22,7 @@ from .mcp_host import MCPHost
 from .models import AgentRun, MatchResult, Ticket
 from .paths import RUNS_DIR, SANDBOX_DIR
 from .prompts import build_prompt
+from .authors import AuthorError
 from .runner import AgentError, run_agent
 from .trace import Trace
 from .workspace import Workspace, copy_project
@@ -51,7 +52,7 @@ class Match:
         self, ticket_id: str, *, llm: LLM, autonomy: str = "semi", approve: Approver | None = None,
         runs_dir: Path = RUNS_DIR, max_retries: int = 2, listeners=(),
         ticket: Ticket | None = None, project: Path | None = None, squad_draft: Draft | None = None,
-        workspace: Path | None = None, hidden_tests: Path | None = None,
+        workspace: Path | None = None, hidden_tests: Path | None = None, author=None,
     ) -> None:
         if autonomy not in AUTONOMY_LEVELS:
             raise ValueError(f"autonomy must be one of {AUTONOMY_LEVELS}")
@@ -62,6 +63,7 @@ class Match:
         self.ticket, self.project, self.squad_draft = ticket, project, squad_draft
         self.workspace = workspace  # a session's long-lived working copy: created on first use, reused after
         self.hidden_tests = hidden_tests  # tests the author never sees; only the gate runs them
+        self.author = author  # None: the built-in FORGE loop; otherwise e.g. ClaudeCodeAuthor
         self.answer = ""
         self.verdict: str | None = None  # the gate's verdict on the last attempt, when there was one
         self.runs: list[AgentRun] = []
@@ -104,10 +106,12 @@ class Match:
             Workspace(workspace_dir).init_repo()
         await host.connect("workspace", server_params("workspace", SQUAD_WORKSPACE=str(workspace_dir)))
         self.gate = Gate(workspace_dir, hidden_tests=self.hidden_tests)
+        self.workspace_dir = workspace_dir
 
         trace = Trace(run_dir / "trace.jsonl")
         trace.listeners.extend(self.listeners)
-        trace.emit("match_start", ticket=ticket.id, title=ticket.title, autonomy=self.autonomy, llm=type(self.llm).__name__)
+        author = f", author={self.author.name}" if self.author else ""
+        trace.emit("match_start", ticket=ticket.id, title=ticket.title, autonomy=self.autonomy, llm=type(self.llm).__name__ + author)
         squad = self.squad_draft or draft(ticket)
         names = squad.names
         trace.emit(
@@ -122,7 +126,7 @@ class Match:
             attempts, success, reason = await self._play(ticket, names, host, board, trace)
             if "FORGE" in names and self.verdict in (PASS, UNVERIFIED) and success is not False:
                 commit, reason = await self._commit(ticket, host, trace, reason)
-        except AgentError as err:
+        except (AgentError, AuthorError) as err:
             success, reason = False, str(err)
 
         stats = self._stats(started, attempts)
@@ -237,6 +241,11 @@ class Match:
     async def _agent(self, name, ticket, board, host, trace, phase, attempt, feedback) -> AgentRun:
         meta = {"ticket": ticket.id, "attempt": attempt, "phase": phase}
         prompt = build_prompt(name, ticket, board.snapshot(), attempt, feedback)
+        if name == "FORGE" and self.author is not None:
+            prompt = prompt.replace("Implement the change, run the tests, then call submit_work.", "Implement the change.")
+            run = await self.author.write(self.workspace_dir, prompt, trace, meta)
+            self.runs.append(run)
+            return run
         run = await run_agent(ROSTER[name], prompt, llm=self.llm, host=host, trace=trace, meta=meta)
         self.runs.append(run)
         return run

@@ -47,9 +47,10 @@ async def ask_yes_no(question: str) -> bool:
 class Session:
     def __init__(
         self, project: Project, llm, *, autonomy: str = "semi", runs_dir: Path = RUNS_DIR,
-        out: Callable[[str], None] = print, ask=ask_yes_no,
+        out: Callable[[str], None] = print, ask=ask_yes_no, author=None,
     ) -> None:
         self.project, self.llm, self.autonomy, self.runs_dir = project, llm, autonomy, runs_dir
+        self.author = author  # one author session per working copy, so follow-up requests keep their context
         self.out, self.ask = out, ask
         self.turns: list[tuple[str, str]] = []
         self.tokens = 0
@@ -60,6 +61,11 @@ class Session:
         self.workspace = self.runs_dir / f"{time.strftime('%Y%m%d-%H%M%S')}-session" / "workspace"
         self.source = self.target = self.project.path
         self.turns.clear()
+        self._fresh_author()
+
+    def _fresh_author(self) -> None:
+        if getattr(self, "author", None) is not None:
+            self.author.session = None
 
     def _start_new_project(self, destination: str) -> bool:
         """A request for a new folder elsewhere gets an empty workspace, not a copy of the current project."""
@@ -75,11 +81,12 @@ class Session:
         base = self.runs_dir / f"{time.strftime('%Y%m%d-%H%M%S')}-new"
         (base / "empty").mkdir(parents=True)
         self.workspace, self.source, self.target = base / "workspace", base / "empty", dest
+        self._fresh_author()
         return True
 
     def banner(self) -> str:
         try:
-            status = f"model: {describe(self.llm)}"
+            status = f"model: {describe(self.llm)} | author: {'Claude Code' if self.author else 'built-in FORGE'}"
         except ConfigError as err:
             status = str(err)
         roster = "  ".join(f"{ROLE_COLORS[a.role.value]}{a.name}{RESET}" for a in ROSTER.values())
@@ -129,7 +136,7 @@ class Session:
         match = Match(
             ticket.id, llm=self.llm, autonomy=self.autonomy, approve=self.ask, runs_dir=self.runs_dir,
             listeners=[lambda e: (line := render(e)) and self.out(line)],
-            ticket=ticket, project=self.source, squad_draft=plan.draft, workspace=self.workspace,
+            ticket=ticket, project=self.source, squad_draft=plan.draft, workspace=self.workspace, author=self.author,
         )
         result = await match.run()
         self.tokens += result.stats["input_tokens"] + result.stats["output_tokens"]

@@ -25,7 +25,7 @@ It rebuilds the change in a private copy with the base commit as the baseline, s
 
 ## How it works
 
-The author agent (FORGE) makes the change in a copy of your project. Then **WARDEN, the deterministic gate** (`squad/gate.py`), decides. It is code, not a model, and the author cannot talk it round:
+The author (FORGE) makes the change in a copy of your project. If Claude Code is installed and logged in, FORGE **is** Claude Code: one session per working copy (so retries and follow-ups keep context), with its real Read, Edit, Grep and Glob tools, and with no shell, no web access and no MCP servers, so it can edit files and nothing else. Otherwise a built-in agent fills the seat. Set `"author": "squad" | "claude-code"` in `squad.config.json` to choose. Then **WARDEN, the deterministic gate** (`squad/gate.py`), decides. It is code, not a model, and the author cannot talk it round:
 
 | Check | What it catches |
 |---|---|
