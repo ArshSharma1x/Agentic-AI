@@ -1,101 +1,60 @@
 # Vision
 
-A valorant themed, multi-agent software delivery team. Agents are drafted into a squad by role, like Valorant agents, and the squad takes a ticket from requirements to verified delivery, using MCP tools for the company's systems.
+**Coding agents write code. Nobody checks their work in a way a skeptic would accept. Agentic-AI is the squad that does.**
 
-## Core concept
+## The problem
 
-### Roles (Valorant-style classes)
+By late 2026 every serious vendor ships a capable coding agent (Claude Code, Codex, Cursor, Copilot, Devin, opencode). They compete on the same surfaces and the same models. What none of them gives you is evidence:
 
-| Class | Job in the SDLC | Example agents |
+- **Agents game verification.** Research measures it directly: agents edit or delete tests, special-case test inputs, and exit early with a success code. A single `conftest.py` can turn a red suite green.
+- **Review is a model's opinion.** Vendor review bots are another model saying "looks good", inside one vendor's product, with no record an outsider can check.
+- **Agents run with too much power.** The 2026 prompt-injection incidents (Clinejection, Comment and Control, GitLost) all routed untrusted issue or PR text into an agent that held secrets and network access.
+- **Nobody can answer the auditor.** What did the agent read? Which tests ran, and were they the original tests? Who approved the merge?
+
+Developer trust in AI output fell from 40% to 29% between 2024 and 2025, even as usage rose. The bottleneck is no longer generating code. It is trustworthy evidence that the code is right.
+
+## What we build
+
+A **verification gate** that sits between "the agent says it's done" and "a human merges". It works with any author agent, and every gate decision is computed by code, never by a model's say-so.
+
+The squad keeps its Valorant names, but each one is a real job, not a persona:
+
+| Agent | Job | How |
 |---|---|---|
-| **Duelist** | Executes: writes code and makes the change | SWE agent, refactor agent |
-| **Initiator** | Gathers intel: pulls context from the company's systems before anyone acts | Research agent (Jira, Confluence, Figma, DB schema) |
-| **Controller** | Plans and coordinates: breaks work down, sequences handoffs, tracks state | PM agent, architect agent |
-| **Sentinel** | Holds and verifies: checks output against acceptance criteria before anything ships | QA agent, security reviewer, CFO/cost check |
+| **FORGE** (Duelist) | The author. Writes the change. | Pluggable: our built-in agent, or Claude Code, Codex, any agent that leaves a diff |
+| **WARDEN** (Sentinel) | The deterministic gate | Runs the *original* tests (plus hidden ones the author never saw) in a sandbox; detects tampering; compile and lint checks; verdict PASS, FAIL or UNVERIFIED |
+| **AEGIS** (Sentinel) | The independent reviewer | A fresh-context model with no write access that sees only the diff and the evidence. It can add findings; it can never overturn a red gate |
+| **RADAR** (Initiator) | Read-only explorer | Gathers cited context. Its notes are marked untrusted, never "rules" |
 
-Each agent's abilities are its MCP tools. An Initiator's abilities are read-only access to Jira, Confluence, Figma and the DB. A Duelist's abilities are Git and the filesystem.
+The dispatcher still sizes the squad per request, and policy rules still override the model ("model proposes, policy disposes"): nothing ships without WARDEN, and sensitive paths always get AEGIS.
 
-### Agent select (squad drafting)
+## Principles
 
-Before a match, the orchestrator drafts the squad for the task, the way a Valorant team picks agents at agent select. The draft rules are explicit and inspectable, and every pick is logged with its reasoning:
-
-- Ambiguous requirements → add an Initiator first (gather context before building)
-- Multi-repo or cross-team work → add a Controller (plan before executing)
-- Security-sensitive or payments code → add a second Sentinel (extra verification gate)
-- Small, well-specified bug → minimal squad: one Initiator, one Duelist, one Sentinel
-
-## Game-style UI
-
-The product is a graphical, video-game-style interface, not a terminal. Designs live in Figma: https://www.figma.com/design/pi5xQtEN5ZFzlOaWVtvaFA
-
-- **Agent Select screen**: a mission brief on the left (ticket, detected signals, recommended draft), the roster in the middle, the selected agent's abilities on the right, and the squad bar with a LOCK IN button at the bottom.
-- **Live Match HUD**: a phase tracker on top, the squad with status and budget bars on the left, a pipeline "battlefield" with the shared blackboard and live diff in the middle, a kill-feed-style match feed on the right, and a bottom bar with the active agent's abilities, match stats and an autonomy control (manual, semi-auto, full-auto) plus PAUSE and INTERVENE.
-- **Characters**: each agent is a named character with a role emblem. Working names so far: FORGE and RIVET (Duelists), RADAR and CIPHER (Initiators), ATLAS and ARCHON (Controllers), AEGIS and WARDEN (Sentinels). Abilities (Q, E, C, X) are the agent's MCP tools, with X as the ultimate.
-- **Planned**: a Match Result and replay screen.
-
-## How a match plays out
-
-1. **Agent select**: the orchestrator drafts the squad.
-2. **Intel round**: Initiators pull context through MCP (Jira, Confluence, Figma, Git, DB, Slack).
-3. **Plan**: the Controller writes the plan and acceptance criteria to a shared blackboard.
-4. **Execute**: Duelists implement the change on a branch.
-5. **Verify**: Sentinels run tests, review, and check against criteria. A failure sends the round back to the Duelist, up to a retry limit.
-6. **Result**: a PR or report, plus a match replay showing every handoff and decision.
-
-## Planned architecture
-
-- **Orchestrator**: a state machine over the shared blackboard. It drafts the squad, handles handoffs and retries.
-- **Agents**: a role prompt, an allowed tool list, and a model tier. Workers use `claude-sonnet-5-5`, drafting uses `claude-haiku-5-5`, and hard reasoning can use `claude-opus-5-5`.
-- **MCP layer**: one MCP server per external system. Local stand-ins (filesystem, git, SQLite) come first, so the demo runs without company accounts.
-- **Blackboard**: the shared context store. Agents read and write there, not to each other directly.
-- **Match replay**: a timeline of agent decisions, tool calls, and verification results, for debugging and for demos.
-
-## Roadmap
-
-**Phase 1: MVP (one match)**
-- Four roles and the draft logic
-- Local MCP servers: filesystem, git, and a mock ticket source
-- Sentinel gate with a retry limit
-- Match replay as a JSON trace, rendered as a simple HTML page
-
-**Phase 2: Real integrations**
-- MCP servers for Jira, Confluence, Figma, and Slack
-- Multi-repo support
-- Cost tracking per match (the CFO agent's job)
-
-**Phase 3: Autonomy and evaluation**
-- The draft logic learns from match outcomes
-- An eval suite of seeded tickets with known-good outcomes
-- Agents can request a role swap mid-match, like a mid-round rotation
-
-## What this demonstrates
-
-- Multi-agent orchestration with explicit handoffs and verification gates
-- MCP integration across the tools a real engineering team uses
-- Explainable squad drafting, with the reasoning logged for each decision
-- Evaluation: measured outcomes, not just demos
-- Product thinking: a theme that makes the system easy to explain to non-engineers
+1. **Facts over opinions.** A gate result is an exit code, a test count and a hash, not a model's `passed: true`.
+2. **The author never grades itself.** Separation of duties: the agent that wrote the code cannot change the tests that judge it, and the reviewer cannot write code.
+3. **Least privilege by construction.** No single role holds untrusted input, secrets and a network connection at once.
+4. **Evidence travels with the change.** Each verified change carries a record of what ran, on which inputs, with which result, that someone else can check.
+5. **Say only what the code backs.** Every claim in this repo should be reproducible by a test or a command.
 
 ## Status
 
-Phase 1 is built and merged. A match runs end to end over real MCP servers:
+What works today: the terminal (`agentic`), the dispatcher with policy rules, per-role tool permissions enforced in code, local MCP servers, a JSONL trace with replay, copy-on-write sessions with `/diff` and `/apply`, and two model backends (Anthropic API, or a logged-in Claude Code).
 
-- Squad of five (RADAR, ATLAS, FORGE, WARDEN, AEGIS), drafted per ticket with logged reasons. The other three named characters (RIVET, CIPHER, ARCHON) are design-only for now.
-- Local MCP servers for Jira, Confluence and a sandboxed workspace (files, tests, git, security scan). Each agent can call only its own tools, enforced in code, and `tests/` is read-only to agents.
-- Retry loop with Sentinel gates, autonomy levels (manual, semi, full) and an approval gate before the commit.
-- Every match writes a JSONL trace, replayed in the terminal or as a standalone game-style HTML page (`squad ui`).
-- `squad eval` compares the squad with a solo FORGE + WARDEN baseline and audits both outputs the same way. On the payments ticket the solo run ships a refund with no authorization check; the squad does not.
-- `squad` opens an interactive terminal: a dispatcher sizes the squad per message (chat, one agent, or the full squad), the session remembers earlier turns, and `/diff` and `/apply` bring the squad's changes back to your real folder. A browser app is available with `--web`.
-- CI runs the test suite on every PR.
+An independent audit in November 2026 ([docs/research/notes/code_audit.md](docs/research/notes/code_audit.md)) found that the old gates trusted the model's own verdict, that the tests could be disabled by the author, and that model-written code ran with the user's environment and network. Those are being fixed in this order:
 
-Not done yet, stated plainly:
+| Phase | Work |
+|---|---|
+| P0 | Remove unbacked claims; adversarial tests for every audit finding |
+| P1 | Deterministic gates computed by the orchestrator; "no tests" is UNVERIFIED |
+| P2 | Test integrity: tamper detection, pristine and hidden tests, protected `.git` |
+| P3 | Real isolation (no network, allow-listed environment) and untrusted-content handling |
+| P4 | Pluggable author agents, and `agentic verify` for changes made by any agent |
+| P5 | Per-repo policy file and a signed evidence bundle per change |
+| P6 | A live-model eval with hidden tests against a fair single-agent baseline |
 
-- The eval numbers come from the scripted model (real tools, canned decisions), so they prove the machinery, not model quality. The Anthropic-backed path has run live on two requests (a question answered by RADAR alone; a bug fix by FORGE + WARDEN, about 9k tokens), but there is no live eval yet.
-- The security scanner is a heuristic tripwire, not a SAST tool.
-- Figma and Slack MCP servers, cost tracking against a budget, and multi-repo support are still Phase 2.
+The research behind this direction is in [docs/research/](docs/research/agentic-ai-landscape-and-gaps.md).
 
-## Open questions
+## What we will not claim
 
-- Which external system to wire first beyond the local stand-ins
-- Whether to build the remaining three characters, or keep the squad at five
-- First live-model eval run: how many seeded tickets are enough to say anything meaningful
+- The old "squad beats solo" eval used a scripted model and an unfair baseline. It is not evidence, and it is not presented as such.
+- Multi-agent is not a goal in itself. The evidence says extra agents mostly add cost; the only split we keep is the one that buys independence (author versus verifier).

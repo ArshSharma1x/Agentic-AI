@@ -1,6 +1,8 @@
 # Agentic-AI
 
-A Valorant-style squad of AI agents that takes a ticket from requirements to a verified commit, using MCP tools. The concept is in [vision.md](vision.md).
+A squad of AI agents that verifies code changes with evidence a skeptic would accept. The author agent writes; a deterministic gate and an independent reviewer decide. Why and where it is going: [vision.md](vision.md).
+
+> **Status, stated plainly:** an audit in November 2026 found that the gates trusted the model's own verdict and that model-written code ran without real isolation. Those fixes are in progress (see vision.md). Until they land, treat this as a prototype and run it only on code you trust.
 
 ## How it works
 
@@ -41,7 +43,7 @@ agentic          # or: /path/to/Agentic-AI/.venv/bin/python -m squad
 
 This opens the squad terminal. Type what you need, the way you would in any coding assistant. A dispatcher reads each message and sends in only the agents the job needs: a greeting gets a plain reply, a question gets RADAR, a security audit gets AEGIS, a code change gets FORGE with a QA gate (plus a security gate for payments, auth or PII). The session remembers earlier turns, so follow-ups like "now add a test for that" work.
 
-The squad works on a copy of your folder, so nothing in your files changes until you say so:
+The squad works on a copy of your folder and only `/apply` writes back to it. Note that tests the squad runs are not yet isolated from your machine (fix in progress).
 
 | Command | Does |
 |---|---|
@@ -65,7 +67,7 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 .venv/bin/python -m squad run PAY-482 --autonomy full
 .venv/bin/python -m squad ask "What does this project do?"   # terminal version of the app (needs a model: Claude Code login or API key)
 .venv/bin/python -m squad replay <path-to-trace.jsonl>
-.venv/bin/python -m squad eval   # full squad vs a solo FORGE + WARDEN baseline
+.venv/bin/python -m squad eval   # machinery check with the scripted model (not a quality result)
 .venv/bin/python -m squad ui <path-to-trace.jsonl> --open   # game-style HTML replay
 .venv/bin/pytest
 ```
