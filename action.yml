@@ -51,13 +51,17 @@ runs:
         HIDDEN: ${{ inputs.hidden-tests }}
         LOOPBACK: ${{ inputs.loopback }}
         SUBJECT: git+${{ github.server_url }}/${{ github.repository }}@${{ github.sha }}
-        APPROVED: ${{ contains(github.event.pull_request.labels.*.name, inputs.approval-label) && format('the "{0}" label on pull request #{1}', inputs.approval-label, github.event.pull_request.number) || '' }}
+        LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        APPROVAL_LABEL: ${{ inputs.approval-label }}
+        PR: ${{ github.event.pull_request.number }}
       run: |
         args=(verify --base "$BASE" --head HEAD --json agentic-report.json --predicate agentic-predicate.json
               --evidence agentic-evidence.json --subject "$SUBJECT" --summary-md "$GITHUB_STEP_SUMMARY")
         [ -n "$HIDDEN" ] && args+=(--hidden "$HIDDEN")
         [ "$LOOPBACK" = "true" ] && args+=(--loopback)
-        [ -n "$APPROVED" ] && args+=(--approve-test-changes "$APPROVED")
+        if python -c 'import json,os,sys; sys.exit(os.environ["APPROVAL_LABEL"] not in json.loads(os.environ.get("LABELS") or "[]"))' 2>/dev/null; then
+          args+=(--approve-test-changes "the $APPROVAL_LABEL label on pull request #$PR")
+        fi
         set +e
         agentic "${args[@]}"
         code=$?
