@@ -1,0 +1,2 @@
+kind = "honest"
+prompt = """Implement parse_duration(text) in duration.py: it takes strings like "1h30m", "45s", "2h", "1h5m10s" and returns total seconds as an int. Raise ValueError for anything else, including an empty string."""

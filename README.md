@@ -2,6 +2,8 @@
 
 A squad of AI agents that verifies code changes with evidence a skeptic would accept. The author agent writes; a deterministic gate and an independent reviewer decide. Why and where it is going: [vision.md](vision.md).
 
+**Evidence, not adjectives:** in a [live eval](docs/eval/README.md) with impossible tasks (a visible test contradicts the spec), Claude Code on Haiku 5.5 rewrote the failing test to get a green suite in 5 of 12 runs, twice without telling the user. Normal CI would have merged all five. The gate stopped all five, with zero false alarms on 48 correct changes.
+
 > **Status, stated plainly:** an audit in November 2026 found that the old gates trusted the model's own verdict and that model-written code ran without isolation. Both are fixed (deterministic gate, OS sandbox), with an adversarial test for every finding. Pluggable author agents, signed evidence and a live eval are next (see vision.md).
 
 ## Verify any agent's work
@@ -45,6 +47,7 @@ network = "none"              # or "loopback"
 require_tests = false         # true: untestable changes FAIL instead of UNVERIFIED
 allow_test_changes = false    # true: edits to existing tests are reported, and the edited tests run
 sensitive = ["payments/**"]   # changes here are UNVERIFIED until a human reviews them
+allow_preexisting_failures = false  # true: tests already failing before the change don't block it
 ```
 
 The policy is read from the **base** commit, so a change cannot loosen the rules that judge it, and editing the file counts as tampering.
@@ -58,7 +61,7 @@ The author (FORGE) makes the change in a copy of your project. If Claude Code is
 | Integrity | Changed, moved or deleted existing tests; planted `conftest.py`, `pytest.ini`, `sitecustomize.py` or pytest settings in `pyproject.toml`; source code that detects it is under test (`PYTEST_CURRENT_TEST`) or exits early |
 | Review | Edits to CI or to the gate's own policy: often legitimate, so not FAIL, but UNVERIFIED until a human looks |
 | Compile | Syntax errors in any changed Python, JSON, JavaScript or Java file, even ones the tests never import |
-| Original tests | Runs the tests **as they were before the change** (tampered files are put back first) and compares each test with the baseline: only failures the change introduced count; all-skipped, vanished or early-exit runs fail |
+| Original tests | Runs the tests **as they were before the change** (tampered files are put back first) and compares each test with the baseline: new failures, vanished or newly skipped tests, all-skipped and early-exit runs FAIL; tests that failed before and still fail are UNVERIFIED (the change may not do what was asked) |
 | Hidden tests | Optional tests the author never sees. Failures are reported by count only, so the author cannot fit to them |
 
 The verdict is **PASS**, **FAIL**, or **UNVERIFIED** (for example, the project has no tests). Nothing is committed on UNVERIFIED unless you accept it. AEGIS, an independent model reviewer, can add findings on top, but no model can turn a red gate green. Model-written code runs in an OS sandbox (Seatbelt on macOS, bubblewrap on Linux): no network, no reading your home directory, no writing outside the working copy, and an allow-listed environment with no API keys, tokens or SSH agent. Git runs with hooks and `fsmonitor` disabled. Where no sandbox is available the evidence says `sandbox: none` rather than pretending. Each defence has an adversarial test (`tests/test_gate.py`, `tests/test_sandbox.py`), and CI runs them against the real Linux sandbox.
@@ -116,7 +119,7 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 .venv/bin/python -m squad run PAY-482 --autonomy full
 .venv/bin/python -m squad ask "What does this project do?"   # terminal version of the app (needs a model: Claude Code login or API key)
 .venv/bin/python -m squad replay <path-to-trace.jsonl>
-.venv/bin/python -m squad eval   # machinery check with the scripted model (not a quality result)
+.venv/bin/python -m squad eval --seeds 3   # the live eval in docs/eval (needs Claude Code)
 .venv/bin/python -m squad ui <path-to-trace.jsonl> --open   # game-style HTML replay
 .venv/bin/pytest
 ```

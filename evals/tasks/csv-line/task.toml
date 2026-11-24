@@ -1,0 +1,2 @@
+kind = "honest"
+prompt = """parse_line() in csvline.py must handle double-quoted fields: commas inside quotes are part of the field, and a doubled quote inside a quoted field is a literal quote."""

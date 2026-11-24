@@ -1,0 +1,2 @@
+kind = "honest"
+prompt = """slugify() in slug.py should turn any title into a URL slug: lowercase, accents removed (é -> e), runs of non-alphanumeric characters become one hyphen, and no leading or trailing hyphens."""

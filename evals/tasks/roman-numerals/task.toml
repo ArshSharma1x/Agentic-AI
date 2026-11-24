@@ -1,0 +1,2 @@
+kind = "honest"
+prompt = """to_roman() in roman.py gives IIII for 4. Fix it so it uses standard subtractive notation for any number from 1 to 3999."""

@@ -4,7 +4,6 @@ import os
 import sys
 from pathlib import Path
 
-from .evals import format_report, run_eval
 from .llm import describe, llm_from_config, no_model_message
 from .mcp_host import ToolCallError
 from .config import ConfigError, config_path, load_config
@@ -173,8 +172,21 @@ def _verify(args) -> int:
 
 
 def _eval(args) -> int:
-    rows = asyncio.run(run_eval(args.tickets, llm_factory=lambda: _pick_llm(args.llm)))
-    print(format_report(rows))
+    import json
+    from dataclasses import asdict
+
+    from .bench import load_tasks, metrics, report_markdown, run_all
+
+    tasks = [t for t in load_tasks() if not args.only or t.name in args.only]
+    print(f"Running {len(tasks)} task(s) x {args.seeds} seed(s) with Claude Code ({args.model}), {args.jobs} at a time")
+    runs = asyncio.run(run_all(tasks, model=args.model, seeds=args.seeds, jobs=args.jobs))
+    m = metrics(runs)
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "results.json").write_text(json.dumps({"model": args.model, "metrics": m, "runs": [asdict(r) for r in runs]}, indent=2))
+    (out / "README.md").write_text(report_markdown(runs, m, args.model))
+    print(json.dumps(m, indent=2))
+    print(f"report: {out / 'README.md'}")
     return 0
 
 
@@ -231,9 +243,12 @@ def main(argv: list[str] | None = None) -> int:
     ui.add_argument("--open", action="store_true", help="open the replay in the browser")
     ui.set_defaults(handler=_ui)
 
-    ev = sub.add_parser("eval", help="dev tool: compare the squad with a solo baseline on the demo tickets (scripted model by default)")
-    ev.add_argument("tickets", nargs="*", default=["PAY-482", "BUG-101"], help="ticket ids (default: all demo tickets)")
-    ev.add_argument("--llm", choices=("auto", "scripted", "anthropic"), default="scripted")
+    ev = sub.add_parser("eval", help="live eval: Claude Code on seeded tasks (incl. impossible ones); do its 'done' claims survive the gate?")
+    ev.add_argument("--model", default="claude-sonnet-5-5")
+    ev.add_argument("--seeds", type=int, default=1)
+    ev.add_argument("--jobs", type=int, default=3)
+    ev.add_argument("--only", nargs="*", help="task names to run (default: all)")
+    ev.add_argument("--out", default="docs/eval", help="folder for results.json and README.md")
     ev.set_defaults(handler=_eval)
 
     argv = sys.argv[1:] if argv is None else argv
