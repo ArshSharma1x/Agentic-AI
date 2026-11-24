@@ -55,7 +55,8 @@ def _render(messages: list[dict]) -> str:
                 lines.append(f"YOU CALLED: {block['name']} {json.dumps(block['input'])}")
             elif kind == "tool_result":
                 error = " (error)" if block.get("is_error") else ""
-                lines.append(f"RESULT{error}: {block['content']}")
+                # JSON-encoded, so text inside a file can never start a line that looks like a transcript turn.
+                lines.append(f"RESULT{error}: {json.dumps(block['content'] if isinstance(block['content'], str) else str(block['content']))}")
     return "\n\n".join(lines)
 
 
